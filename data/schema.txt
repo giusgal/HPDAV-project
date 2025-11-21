@@ -1,0 +1,38 @@
+Buildings:
+buildingId,location,buildingType,maxOccupancy,units
+
+Partecipants:
+participantId,householdSize,haveKids,age,educationLevel,interestGroup,joviality
+
+CheckinJournal:
+participantId,timestamp,venueId,venueType
+
+FinancialJournal:
+participantId,timestamp,category,amount
+
+SocialNetwork:
+timestamp,participantIdFrom,participantIdTo
+
+Apartments:
+apartmentId,rentalCost,maxOccupancy ,numberOfRooms,location,buildingId
+
+Employers:
+employerId,location,buildingId
+
+Jobs:
+jobId,employerId,hourlyRate,startTime,endTime,daysToWork,educationRequirement
+
+Pubs:
+pubId,hourlyCost,maxOccupancy,location,buildingId
+
+Restaurants:
+restaurantId,foodCost,maxOccupancy ,location,buildingId
+
+Schools:
+schoolId,monthlyCost,maxEnrollment,location,buildingId
+
+TravelJournal:
+participantId,travelStartTime,travelStartLocationId,travelEndTime,travelEndLocationId,purpose,checkInTime,checkOutTime,startingBalance,endingBalance
+
+PartecipantStatusLogs: [TODO] (Just done the first one)
+timestamp,currentLocation,participantId,currentMode,hungerStatus,sleepStatus,apartmentId,availableBalance,jobId,financialStatus,dailyFoodBudget,weeklyExtraBudget
