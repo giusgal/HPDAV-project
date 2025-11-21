@@ -43,11 +43,10 @@ cd ..
 echo "[INFO] running containers"
 sudo docker compose up --build -d
 
-echo "[INFO] creating DB (this might take several minutes)"
-sudo docker compose exec -T db psql -U myuser -d hpdavDB < ./data/create_db.sql
+echo "[INFO] waiting some seconds before"
 
-echo "[INFO] removing create_db file"
-rm -rf ./data/create_db.sql
+echo "[INFO] creating DB (this might take several minutes) and removing create_db file"
+sudo docker compose exec -T db psql -U myuser -d hpdavDB < ./data/create_db.sql && rm -rf ./data/create_db.sql
 
 echo "[INFO] Finished"
 echo " Connect to http://localhost:5000"
