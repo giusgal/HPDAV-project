@@ -100,6 +100,16 @@ function AreaCharacteristics() {
       .domain(yExtent)
       .range([innerHeight, 0]); // Inverted for image coordinates
 
+    // Add clipping path to prevent cells from going outside the chart area
+    svg.append('defs')
+      .append('clipPath')
+      .attr('id', 'chart-clip')
+      .append('rect')
+      .attr('x', 0)
+      .attr('y', 0)
+      .attr('width', innerWidth)
+      .attr('height', innerHeight);
+
     // Add basemap image as background
     // The basemap PNG is 1076x1144 pixels and should map to the full coordinate space
     g.append('image')
@@ -119,8 +129,12 @@ function AreaCharacteristics() {
     const cellWidth = Math.abs(xScale(gridSize) - xScale(0));
     const cellHeight = Math.abs(yScale(0) - yScale(gridSize));
 
+    // Create a group for cells with clipping
+    const cellsGroup = g.append('g')
+      .attr('clip-path', 'url(#chart-clip)');
+
     // Draw cells with transparency
-    g.selectAll('rect.cell')
+    cellsGroup.selectAll('rect.cell')
       .data(cells)
       .enter()
       .append('rect')
@@ -140,13 +154,13 @@ function AreaCharacteristics() {
         
         const tooltip = d3.select(tooltipRef.current);
         tooltip.style('display', 'block')
-          .style('left', `${event.pageX + 10}px`)
-          .style('top', `${event.pageY - 10}px`);
+          .style('left', `${event.clientX + 10}px`)
+          .style('top', `${event.clientY - 10}px`);
       })
       .on('mousemove', (event) => {
         d3.select(tooltipRef.current)
-          .style('left', `${event.pageX + 10}px`)
-          .style('top', `${event.pageY - 10}px`);
+          .style('left', `${event.clientX + 10}px`)
+          .style('top', `${event.clientY - 10}px`);
       })
       .on('mouseout', (event) => {
         setHoveredCell(null);
