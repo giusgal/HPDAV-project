@@ -1,48 +1,33 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import React, { useState } from 'react';
+import Layout from './components/Layout';
+import Sidebar from './components/Sidebar';
+import { AreaCharacteristics } from './components/visualizations';
 import './App.css';
 
+const VIEWS = [
+  { id: 'area-characteristics', label: 'Area Characteristics', component: AreaCharacteristics },
+  // Add more views here as needed
+];
+
 function App() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [activeView, setActiveView] = useState('area-characteristics');
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const response = await axios.get('http://localhost:5000/');
-        setData(response.data);
-        setError(null);
-      } catch (err) {
-        setError(err.message);
-        setData(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
+  const ActiveComponent = VIEWS.find(v => v.id === activeView)?.component || AreaCharacteristics;
+  const activeLabel = VIEWS.find(v => v.id === activeView)?.label || 'Data Visualization';
 
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>HPDAV Project - Data Visualization</h1>
-      </header>
-      <main className="App-main">
-        <div className="data-container">
-          <h2>Flask API Response</h2>
-          {loading && <p>Loading data from backend...</p>}
-          {error && <p className="error">Error: {error}</p>}
-          {data && (
-            <div className="data-content">
-              <div dangerouslySetInnerHTML={{ __html: data }} />
-            </div>
-          )}
+    <Layout title={activeLabel}>
+      <div className="app-content">
+        <Sidebar 
+          activeView={activeView} 
+          onViewChange={setActiveView}
+          views={VIEWS}
+        />
+        <div className="main-content">
+          <ActiveComponent />
         </div>
-      </main>
-    </div>
+      </div>
+    </Layout>
   );
 }
 
