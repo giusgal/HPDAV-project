@@ -1,7 +1,7 @@
 services:
   db:
     image: postgres:16-alpine
-    container_name: my_postgres_db
+    container_name: hpdav_db
     restart: always
     environment:
       - POSTGRES_USER=myuser
@@ -13,18 +13,35 @@ services:
 
   backend:
     build: ./backend
+    container_name: hpdav_backend
     ports:
       - "5000:5000"
     volumes:
       - ./backend:/app
     environment:
-      - FLASK_DEBUG=1/backend
+      - FLASK_DEBUG=1
     depends_on:
       - db
 
+  frontend:
+    build: ./frontend
+    container_name: hpdav_frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+    depends_on:
+      - backend
+    stdin_open: true
+    tty: true
+
   pgadmin:
     image: dpage/pgadmin4
-    container_name: pgadmin4
+    container_name: hpdav_pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com
       PGADMIN_DEFAULT_PASSWORD: admin
