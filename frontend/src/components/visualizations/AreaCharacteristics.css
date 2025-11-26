@@ -1,0 +1,178 @@
+.visualization-container {
+  background-color: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 1200px;
+}
+
+/* Controls */
+.controls {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #eee;
+  flex-wrap: wrap;
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.control-group label {
+  font-weight: 500;
+  color: #555;
+  font-size: 14px;
+}
+
+.control-group select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  background-color: white;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.control-group select:focus {
+  outline: none;
+  border-color: #282c34;
+}
+
+.control-group select:hover {
+  border-color: #999;
+}
+
+/* Chart */
+.chart-container {
+  position: relative;
+  width: 100%;
+  min-height: 500px;
+  overflow: visible;
+}
+
+.chart-container svg {
+  display: block;
+  width: 100%;
+  min-height: 500px;
+  overflow: visible;
+}
+
+.chart-container .cell {
+  transition: opacity 0.2s;
+}
+
+/* Tooltip */
+.tooltip {
+  position: fixed;
+  background-color: rgba(40, 44, 52, 0.95);
+  color: white;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  pointer-events: none;
+  z-index: 1000;
+  max-width: 250px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  line-height: 1.5;
+}
+
+/* Info Panel */
+.info-panel {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #f9f9f9;
+  border-radius: 6px;
+  border-left: 4px solid #282c34;
+}
+
+.info-panel h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  color: #282c34;
+  font-size: 16px;
+}
+
+.info-panel p {
+  margin: 8px 0;
+  color: #666;
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.info-panel ul {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.info-panel li {
+  color: #666;
+  margin-bottom: 5px;
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+.info-panel strong {
+  color: #333;
+}
+
+/* Loading & Error States */
+.loading-overlay,
+.error-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(255, 255, 255, 0.9);
+  z-index: 10;
+  font-size: 16px;
+}
+
+.loading-overlay {
+  color: #666;
+}
+
+.error-overlay {
+  color: #d32f2f;
+  font-weight: bold;
+}
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+  font-size: 16px;
+}
+
+.error {
+  color: #d32f2f;
+  font-weight: bold;
+  padding: 20px;
+  background-color: #ffebee;
+  border-radius: 4px;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .controls {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .control-group {
+    width: 100%;
+  }
+  
+  .control-group select {
+    flex: 1;
+  }
+}
