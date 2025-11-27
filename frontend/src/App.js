@@ -1,39 +1,34 @@
 import React, { useState } from 'react';
+import Layout from './components/Layout';
 import Sidebar from './components/Sidebar';
-import AreaCharacteristics from './components/visualizations/AreaCharacteristics';
+import { AreaCharacteristics, TrafficPatterns } from './components/visualizations';
 import './App.css';
 
-const VIEWS = {
-  "area-characteristics": {
-    id: "area-characteristics",
-    label: "Area Characteristics",
-    component: AreaCharacteristics,
-  },
-  // Add more views here
-};
+const VIEWS = [
+  { id: 'area-characteristics', label: 'Area Characteristics', component: AreaCharacteristics },
+  { id: 'traffic-patterns', label: 'Traffic Patterns', component: TrafficPatterns },
+  // Add more views here as needed
+];
 
 function App() {
-  const [activeView, setActiveView] = useState("area-characteristics");
+  const [activeView, setActiveView] = useState('area-characteristics');
 
-  const { component: ActiveComponent, label: activeLabel } =
-    VIEWS[activeView] || VIEWS["area-characteristics"];
+  const ActiveComponent = VIEWS.find(v => v.id === activeView)?.component || AreaCharacteristics;
+  const activeLabel = VIEWS.find(v => v.id === activeView)?.label || 'Data Visualization';
 
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>HPDAV Project - {activeLabel}</h1>
-      </header>
-      <div className="App-main">
-        <Sidebar
-          activeView={activeView}
+    <Layout title={activeLabel}>
+      <div className="app-content">
+        <Sidebar 
+          activeView={activeView} 
           onViewChange={setActiveView}
           views={VIEWS}
         />
-        <main className="main-content">
+        <div className="main-content">
           <ActiveComponent />
-        </main>
+        </div>
       </div>
-    </div>
+    </Layout>
   );
 }
 

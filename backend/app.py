@@ -1,74 +1,44 @@
 import os
-import time
-import logging
 import psycopg2
 import psycopg2.extras
-
-from flask import Flask, jsonify, request, g
+import time
+from flask import Flask, jsonify, request
 from flask_cors import CORS
-
-
-# =============================================================
-# Configurations
-# =============================================================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
-logging.getLogger("werkzeug").setLevel(logging.ERROR)
-logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
 
-# Global in-memory cache for participant locations
+# Cache for participant locations (computed once)
 _participant_locations_cache = None
+# Cache for venue locations
+_venue_locations_cache = None
+# Cache for checkin data with locations
+_checkin_data_cache = None
+# Cache for hourly patterns
+_hourly_pattern_cache = None
+# Cache for flow data by grid size
+_flow_data_cache = {}
 
-
-# =============================================================
-# Helpers
-# =============================================================
 def get_db_connection():
-    return psycopg2.connect(
+    conn = psycopg2.connect(
         host="db",
         database="hpdavDB",
         user="myuser",
         password="mypassword"
     )
-
-@app.before_request
-def start_timer():
-    g.start_time = time.time()
-    logger.info(
-        f"===>> Incoming request: {request.method} {request.path} "
-        f"args={dict(request.args)}"
-    )
-
-
-@app.after_request
-def log_request(response):
-    if hasattr(g, "start_time"):
-        duration = time.time() - g.start_time
-        logger.info(
-            f"<<=== Completed request: {request.method} {request.path} "
-            f"Status={response.status_code} | Time={duration:.3f}s"
-        )
-    return response
-
+    return conn
 
 def get_participant_locations(cur):
     """
-    Get participant locations using a LATERAL join.
-    Cached for all subsequent requests.
+    Get participant locations efficiently using LATERAL join.
+    Results are cached in memory for subsequent requests.
     """
     global _participant_locations_cache
-
+    
     if _participant_locations_cache is not None:
         return _participant_locations_cache
-
-    t0 = time.time()
-    logger.info("Loading participant locations from DB...")
-
+    
+    # Use LATERAL join with LIMIT 1 - very fast with the index
     cur.execute("""
         SELECT 
             p.participantid,
@@ -91,14 +61,181 @@ def get_participant_locations(cur):
         ) psl
         JOIN apartments a ON a.apartmentid = psl.apartmentid
     """)
-
     _participant_locations_cache = cur.fetchall()
-    logger.info(f"Participant locations loaded in {time.time() - t0:.3f}s")
     return _participant_locations_cache
 
-# =============================================================
-# API Endpoints
-# =============================================================
+
+def get_venue_locations(cur):
+    """Get all venue locations, cached."""
+    global _venue_locations_cache
+    
+    if _venue_locations_cache is not None:
+        return _venue_locations_cache
+    
+    cur.execute("""
+        SELECT restaurantid as venueid, 'Restaurant' as venuetype, location[0] as x, location[1] as y FROM restaurants
+        UNION ALL
+        SELECT pubid, 'Pub', location[0], location[1] FROM pubs
+        UNION ALL
+        SELECT apartmentid, 'Apartment', location[0], location[1] FROM apartments
+        UNION ALL
+        SELECT employerid, 'Workplace', location[0], location[1] FROM employers
+        UNION ALL
+        SELECT schoolid, 'School', location[0], location[1] FROM schools
+    """)
+    rows = cur.fetchall()
+    # Create lookup dict: (venueid, venuetype) -> (x, y)
+    _venue_locations_cache = {(r['venueid'], r['venuetype']): (r['x'], r['y']) for r in rows}
+    return _venue_locations_cache
+
+
+def get_checkin_data(cur):
+    """Get all checkin data with timestamps and venue info, cached."""
+    global _checkin_data_cache
+    
+    if _checkin_data_cache is not None:
+        return _checkin_data_cache
+    
+    venue_locs = get_venue_locations(cur)
+    
+    # Fetch checkins without JOIN - much faster
+    cur.execute("""
+        SELECT participantid, timestamp, venueid, venuetype::text as venuetype
+        FROM checkinjournal
+    """)
+    
+    # Add location info in Python
+    _checkin_data_cache = []
+    for row in cur.fetchall():
+        key = (row['venueid'], row['venuetype'])
+        if key in venue_locs:
+            x, y = venue_locs[key]
+            _checkin_data_cache.append({
+                'participantid': row['participantid'],
+                'timestamp': row['timestamp'],
+                'venuetype': row['venuetype'],
+                'x': x,
+                'y': y,
+                'hour': row['timestamp'].hour,
+                'dow': row['timestamp'].weekday()  # 0=Monday, 6=Sunday
+            })
+    
+    return _checkin_data_cache
+
+
+def get_hourly_pattern(cur):
+    """Get hourly pattern, cached."""
+    global _hourly_pattern_cache
+    
+    if _hourly_pattern_cache is not None:
+        return _hourly_pattern_cache
+    
+    cur.execute("""
+        SELECT 
+            EXTRACT(HOUR FROM timestamp)::int as hour,
+            COUNT(*) as visits,
+            COUNT(DISTINCT participantid) as unique_visitors
+        FROM checkinjournal
+        GROUP BY EXTRACT(HOUR FROM timestamp)
+        ORDER BY hour
+    """)
+    _hourly_pattern_cache = cur.fetchall()
+    return _hourly_pattern_cache
+
+
+# Pre-aggregated traffic cache: key = (grid_size, time_period, day_type)
+_traffic_cache = {}
+
+def get_traffic_aggregation(cur, grid_size, time_period, day_type):
+    """Get pre-aggregated traffic data, cached by parameters."""
+    global _traffic_cache
+    
+    cache_key = (grid_size, time_period, day_type)
+    if cache_key in _traffic_cache:
+        return _traffic_cache[cache_key]
+    
+    # Get checkin data (cached)
+    checkin_data = get_checkin_data(cur)
+    
+    # Apply filters
+    filtered_data = checkin_data
+    
+    if time_period == 'morning':
+        filtered_data = [c for c in filtered_data if 6 <= c['hour'] < 10]
+    elif time_period == 'midday':
+        filtered_data = [c for c in filtered_data if 10 <= c['hour'] < 14]
+    elif time_period == 'afternoon':
+        filtered_data = [c for c in filtered_data if 14 <= c['hour'] < 18]
+    elif time_period == 'evening':
+        filtered_data = [c for c in filtered_data if 18 <= c['hour'] < 22]
+    elif time_period == 'night':
+        filtered_data = [c for c in filtered_data if c['hour'] >= 22 or c['hour'] < 6]
+    
+    if day_type == 'weekday':
+        filtered_data = [c for c in filtered_data if c['dow'] < 5]
+    elif day_type == 'weekend':
+        filtered_data = [c for c in filtered_data if c['dow'] >= 5]
+    
+    # Aggregate by grid cell
+    grid_data = {}
+    for c in filtered_data:
+        gx = int(c['x'] // grid_size)
+        gy = int(c['y'] // grid_size)
+        key = (gx, gy)
+        
+        if key not in grid_data:
+            grid_data[key] = {
+                'grid_x': gx,
+                'grid_y': gy,
+                'total_visits': 0,
+                'participants': set(),
+                'restaurant_visits': 0,
+                'pub_visits': 0,
+                'home_visits': 0,
+                'work_visits': 0,
+                'school_visits': 0,
+                'cell_x': c['x'],
+                'cell_y': c['y']
+            }
+        
+        grid_data[key]['total_visits'] += 1
+        grid_data[key]['participants'].add(c['participantid'])
+        
+        vt = c['venuetype']
+        if vt == 'Restaurant':
+            grid_data[key]['restaurant_visits'] += 1
+        elif vt == 'Pub':
+            grid_data[key]['pub_visits'] += 1
+        elif vt == 'Apartment':
+            grid_data[key]['home_visits'] += 1
+        elif vt == 'Workplace':
+            grid_data[key]['work_visits'] += 1
+        elif vt == 'School':
+            grid_data[key]['school_visits'] += 1
+    
+    # Convert to list
+    traffic_data = []
+    for key, data in grid_data.items():
+        traffic_data.append({
+            'grid_x': data['grid_x'],
+            'grid_y': data['grid_y'],
+            'total_visits': data['total_visits'],
+            'unique_visitors': len(data['participants']),
+            'restaurant_visits': data['restaurant_visits'],
+            'pub_visits': data['pub_visits'],
+            'home_visits': data['home_visits'],
+            'work_visits': data['work_visits'],
+            'school_visits': data['school_visits'],
+            'cell_x': data['cell_x'],
+            'cell_y': data['cell_y']
+        })
+    
+    traffic_data.sort(key=lambda x: x['total_visits'], reverse=True)
+    
+    # Cache the result
+    _traffic_cache[cache_key] = traffic_data
+    return traffic_data
+
 @app.route('/')
 def index():
     return jsonify({"status": "ok", "message": "HPDAV API is running"})
@@ -106,19 +243,23 @@ def index():
 
 @app.route('/api/area-characteristics')
 def area_characteristics():
-    total_start = time.time()
-
+    """
+    Parametrized endpoint to characterize distinct areas of the city.
+    
+    Parameters:
+    - grid_size: Size of the grid cells (default: 500)
+    - metric: What to aggregate - 'demographics', 'financial', 'venues', 'apartments', 'all' (default: 'all')
+    """
     grid_size = request.args.get('grid_size', 500, type=int)
     metric = request.args.get('metric', 'all', type=str)
-
+    
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
+    
     try:
         results = {}
-
-        # City bounds
-        t0 = time.time()
+        
+        # Get city bounds from apartments (fast query)
         cur.execute("""
             SELECT 
                 MIN(location[0]) as min_x, MAX(location[0]) as max_x,
@@ -126,40 +267,37 @@ def area_characteristics():
             FROM apartments
         """)
         bounds = cur.fetchone()
-        logger.info(f"Bounds query time = {time.time() - t0:.3f}s")
-
-        results['bounds'] = bounds
+        results['bounds'] = {
+            'min_x': bounds['min_x'],
+            'max_x': bounds['max_x'],
+            'min_y': bounds['min_y'],
+            'max_y': bounds['max_y']
+        }
         results['grid_size'] = grid_size
-
-        # Fetch cached participant locations
+        
+        # Get cached participant locations for demographics and financial queries
         if metric in ['demographics', 'financial', 'all']:
-            t0 = time.time()
             participant_data = get_participant_locations(cur)
-
-        # Demographics computation (Python)
+        
         if metric in ['demographics', 'all']:
-            t0 = time.time()
+            # Aggregate in Python - much faster than SQL on 113M rows
             grid_data = {}
-
             for p in participant_data:
                 gx = int(p['x'] // grid_size)
                 gy = int(p['y'] // grid_size)
                 key = (gx, gy)
-
                 if key not in grid_data:
                     grid_data[key] = {
                         'participants': [],
                         'cell_x': p['x'],
                         'cell_y': p['y']
                     }
-
                 grid_data[key]['participants'].append(p)
-
+            
             demographics = []
             for (gx, gy), data in grid_data.items():
                 participants = data['participants']
                 n = len(participants)
-
                 demographics.append({
                     'grid_x': gx,
                     'grid_y': gy,
@@ -175,28 +313,17 @@ def area_characteristics():
                     'cell_x': data['cell_x'],
                     'cell_y': data['cell_y']
                 })
-
-            results['demographics'] = sorted(
-                demographics, key=lambda x: (x['grid_x'], x['grid_y'])
-            )
-
-            logger.info(
-                f"Demographics computation time = {time.time() - t0:.3f}s"
-            )
-
-        # Financial aggregation
+            results['demographics'] = sorted(demographics, key=lambda x: (x['grid_x'], x['grid_y']))
+        
         if metric in ['financial', 'all']:
-            t0 = time.time()
-
-            # Map participant → grid
-            participant_grid = {
-                p['participantid']: (int(p['x'] // grid_size),
-                                     int(p['y'] // grid_size))
-                for p in participant_data
-            }
-
-            # DB query (~1.8M rows aggregated)
-            q0 = time.time()
+            # Build participant to grid mapping
+            participant_grid = {}
+            for p in participant_data:
+                gx = int(p['x'] // grid_size)
+                gy = int(p['y'] // grid_size)
+                participant_grid[p['participantid']] = (gx, gy)
+            
+            # Get financial data aggregated by participant (fast - only 1.8M rows)
             cur.execute("""
                 SELECT 
                     participantid,
@@ -207,56 +334,37 @@ def area_characteristics():
                 FROM financialjournal
                 GROUP BY participantid
             """)
-            financial_rows = cur.fetchall()
-            logger.info(
-                f"Financial journal DB query = {time.time() - q0:.3f}s"
-            )
-
+            
             # Aggregate by grid
             grid_finances = {}
-            for row in financial_rows:
+            for row in cur.fetchall():
                 pid = row['participantid']
                 if pid not in participant_grid:
                     continue
-
                 gx, gy = participant_grid[pid]
                 key = (gx, gy)
-
                 if key not in grid_finances:
-                    grid_finances[key] = {
-                        'wages': [],
-                        'food': [],
-                        'recreation': [],
-                        'shelter': []
-                    }
-
+                    grid_finances[key] = {'wages': [], 'food': [], 'recreation': [], 'shelter': []}
                 grid_finances[key]['wages'].append(row['total_wage'] or 0)
                 grid_finances[key]['food'].append(row['total_food'] or 0)
                 grid_finances[key]['recreation'].append(row['total_recreation'] or 0)
                 grid_finances[key]['shelter'].append(row['total_shelter'] or 0)
-
+            
             financial = []
             for (gx, gy), data in grid_finances.items():
-                n = len(data['wages']) or 1
+                n = len(data['wages'])
                 financial.append({
                     'grid_x': gx,
                     'grid_y': gy,
-                    'avg_income': sum(data['wages']) / n,
-                    'avg_food_spending': sum(data['food']) / n,
-                    'avg_recreation_spending': sum(data['recreation']) / n,
-                    'avg_shelter_spending': sum(data['shelter']) / n,
+                    'avg_income': sum(data['wages']) / n if n > 0 else 0,
+                    'avg_food_spending': sum(data['food']) / n if n > 0 else 0,
+                    'avg_recreation_spending': sum(data['recreation']) / n if n > 0 else 0,
+                    'avg_shelter_spending': sum(data['shelter']) / n if n > 0 else 0
                 })
-
-            results['financial'] = sorted(
-                financial, key=lambda x: (x['grid_x'], x['grid_y'])
-            )
-            logger.info(
-                f"Financial aggregation time = {time.time() - t0:.3f}s"
-            )
-
-        # Venue aggregation
+            results['financial'] = sorted(financial, key=lambda x: (x['grid_x'], x['grid_y']))
+        
         if metric in ['venues', 'all']:
-            t0 = time.time()
+            # Count venues by type in each grid cell (fast - small tables)
             cur.execute("""
                 WITH all_venues AS (
                     SELECT location[0] as x, location[1] as y, 'restaurant' as venue_type FROM restaurants
@@ -281,15 +389,10 @@ def area_characteristics():
                 GROUP BY FLOOR(x / %s), FLOOR(y / %s)
                 ORDER BY grid_x, grid_y
             """, (grid_size, grid_size, grid_size, grid_size))
-
             results['venues'] = cur.fetchall()
-            logger.info(
-                f"Venue aggregation time = {time.time() - t0:.3f}s"
-            )
-
-        # Apartment aggregation
+        
         if metric in ['apartments', 'all']:
-            t0 = time.time()
+            # Aggregate apartment/building data by area (fast - small table)
             cur.execute("""
                 SELECT 
                     FLOOR(location[0] / %s) as grid_x,
@@ -303,26 +406,92 @@ def area_characteristics():
                 GROUP BY FLOOR(location[0] / %s), FLOOR(location[1] / %s)
                 ORDER BY grid_x, grid_y
             """, (grid_size, grid_size, grid_size, grid_size))
-
             results['apartments'] = cur.fetchall()
-            logger.info(
-                f"Apartments aggregation time = {time.time() - t0:.3f}s"
-            )
-
-        return jsonify(results)
-
-    except Exception as e:
-        logger.error("Error in /api/area-characteristics", exc_info=e)
-        return jsonify({"error": str(e)}), 500
-
-    finally:
+        
         cur.close()
         conn.close()
+        
+        return jsonify(results)
+    
+    except Exception as e:
+        cur.close()
+        conn.close()
+        return jsonify({"error": str(e)}), 500
 
 
-# =============================================================
-# Main entry point
-# =============================================================
+@app.route('/api/traffic-patterns')
+def traffic_patterns():
+    """
+    Parametrized endpoint to identify busiest areas and traffic bottlenecks.
+    
+    Parameters:
+    - grid_size: Size of the grid cells (default: 500)
+    - time_period: 'all', 'morning' (6-10), 'midday' (10-14), 'afternoon' (14-18), 'evening' (18-22), 'night' (22-6) (default: 'all')
+    - day_type: 'all', 'weekday', 'weekend' (default: 'all')
+    - metric: 'visits', 'unique_visitors', 'avg_duration', 'all' (default: 'all')
+    """
+    grid_size = request.args.get('grid_size', 500, type=int)
+    time_period = request.args.get('time_period', 'all', type=str)
+    day_type = request.args.get('day_type', 'all', type=str)
+    metric = request.args.get('metric', 'all', type=str)
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    try:
+        results = {}
+        
+        # Get city bounds from apartments (fast, small table)
+        cur.execute("""
+            SELECT 
+                MIN(location[0]) as min_x, MAX(location[0]) as max_x,
+                MIN(location[1]) as min_y, MAX(location[1]) as max_y
+            FROM apartments
+        """)
+        bounds = cur.fetchone()
+        results['bounds'] = {
+            'min_x': bounds['min_x'],
+            'max_x': bounds['max_x'],
+            'min_y': bounds['min_y'],
+            'max_y': bounds['max_y']
+        }
+        results['grid_size'] = grid_size
+        results['time_period'] = time_period
+        results['day_type'] = day_type
+        
+        # Get pre-aggregated traffic data (cached)
+        traffic_data = get_traffic_aggregation(cur, grid_size, time_period, day_type)
+        results['traffic'] = traffic_data
+        
+        # Calculate statistics for bottleneck detection
+        if traffic_data:
+            visits = [row['total_visits'] for row in traffic_data]
+            results['statistics'] = {
+                'total_cells': len(traffic_data),
+                'total_visits': sum(visits),
+                'max_visits': max(visits),
+                'avg_visits': sum(visits) / len(visits),
+                'median_visits': sorted(visits)[len(visits) // 2],
+                'p90_visits': sorted(visits)[int(len(visits) * 0.9)] if len(visits) >= 10 else max(visits),
+                'p95_visits': sorted(visits)[int(len(visits) * 0.95)] if len(visits) >= 20 else max(visits)
+            }
+        
+        # Get cached hourly pattern
+        if metric in ['hourly', 'all']:
+            results['hourly_pattern'] = get_hourly_pattern(cur)
+        
+        results['flows'] = []
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify(results)
+    
+    except Exception as e:
+        cur.close()
+        conn.close()
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == '__main__':
-    logger.info("Starting Flask server on 0.0.0.0:5000 ...")
     app.run(host='0.0.0.0', port=5000)
