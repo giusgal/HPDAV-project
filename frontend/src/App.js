@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import Layout from './components/Layout';
 import Sidebar from './components/Sidebar';
-import { AreaCharacteristics, TrafficPatterns, DailyRoutines } from './components/visualizations';
+import { AreaCharacteristics, TrafficPatterns, DailyRoutines, TemporalPatterns } from './components/visualizations';
 import './App.css';
 
 const VIEWS = [
   { id: 'area-characteristics', label: 'Area Characteristics', component: AreaCharacteristics },
   { id: 'traffic-patterns', label: 'Traffic Patterns', component: TrafficPatterns },
   { id: 'daily-routines', label: 'Daily Routines', component: DailyRoutines },
+  { id: 'temporal-patterns', label: 'Temporal Patterns', component: TemporalPatterns },
   // Add more views here as needed
 ];
 

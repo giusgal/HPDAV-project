@@ -44,4 +44,20 @@ export const fetchParticipantRoutines = async (params = {}) => {
   return response.data;
 };
 
+export const fetchTemporalPatterns = async (params = {}) => {
+  const { 
+    granularity = 'weekly', 
+    metric = 'all',
+    venueType = 'all'
+  } = params;
+  const response = await api.get('/api/temporal-patterns', {
+    params: { 
+      granularity,
+      metric,
+      venue_type: venueType
+    }
+  });
+  return response.data;
+};
+
 export default api;

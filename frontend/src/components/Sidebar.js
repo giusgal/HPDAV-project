@@ -1,11 +1,10 @@
 import React from 'react';
-import './Sidebar.css';
 
 function Sidebar({ activeView, onViewChange, views }) {
   return (
     <nav className="sidebar">
       <ul className="sidebar-menu">
-        {Object.values(views).map(view => (
+        {views.map(view => (
           <li key={view.id}>
             <button
               className={`sidebar-btn ${activeView === view.id ? 'active' : ''}`}

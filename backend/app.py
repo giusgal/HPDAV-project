@@ -662,5 +662,197 @@ def participant_routines():
         return jsonify({"error": str(e)}), 500
 
 
+# Cache for temporal patterns
+_temporal_patterns_cache = {}
+
+@app.route('/api/temporal-patterns')
+def temporal_patterns():
+    """
+    Parametrized endpoint to analyze how city patterns change over time.
+    
+    Parameters:
+    - granularity: 'daily', 'weekly', 'monthly' (default: 'weekly')
+    - metric: 'activity', 'spending', 'social', 'all' (default: 'all')
+    - venue_type: 'all', 'Restaurant', 'Pub', 'Apartment', 'Workplace' (default: 'all')
+    """
+    global _temporal_patterns_cache
+    
+    granularity = request.args.get('granularity', 'weekly', type=str)
+    metric = request.args.get('metric', 'all', type=str)
+    venue_type = request.args.get('venue_type', 'all', type=str)
+    
+    cache_key = (granularity, metric, venue_type)
+    if cache_key in _temporal_patterns_cache:
+        return jsonify(_temporal_patterns_cache[cache_key])
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    try:
+        results = {
+            'granularity': granularity,
+            'metric': metric,
+            'venue_type': venue_type
+        }
+        
+        # Determine date truncation based on granularity
+        if granularity == 'daily':
+            date_trunc = "DATE(timestamp)"
+            date_trunc_fin = "DATE(timestamp)"
+        elif granularity == 'monthly':
+            date_trunc = "DATE_TRUNC('month', timestamp)"
+            date_trunc_fin = "DATE_TRUNC('month', timestamp)"
+        else:  # weekly
+            date_trunc = "DATE_TRUNC('week', timestamp)"
+            date_trunc_fin = "DATE_TRUNC('week', timestamp)"
+        
+        # Get date range from checkinjournal
+        cur.execute("""
+            SELECT MIN(timestamp)::date as min_date, MAX(timestamp)::date as max_date
+            FROM checkinjournal
+        """)
+        date_range = cur.fetchone()
+        results['date_range'] = {
+            'start': str(date_range['min_date']),
+            'end': str(date_range['max_date'])
+        }
+        
+        # Activity patterns over time
+        if metric in ['activity', 'all']:
+            venue_filter = ""
+            if venue_type != 'all':
+                venue_filter = f"WHERE venuetype = '{venue_type}'"
+            
+            cur.execute(f"""
+                SELECT 
+                    {date_trunc} as period,
+                    COUNT(*) as total_checkins,
+                    COUNT(DISTINCT participantid) as unique_visitors,
+                    COUNT(*) FILTER (WHERE venuetype = 'Restaurant') as restaurant_visits,
+                    COUNT(*) FILTER (WHERE venuetype = 'Pub') as pub_visits,
+                    COUNT(*) FILTER (WHERE venuetype = 'Apartment') as home_activity,
+                    COUNT(*) FILTER (WHERE venuetype = 'Workplace') as work_activity,
+                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM timestamp) BETWEEN 6 AND 9) as morning_activity,
+                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM timestamp) BETWEEN 10 AND 14) as midday_activity,
+                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM timestamp) BETWEEN 15 AND 18) as afternoon_activity,
+                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM timestamp) BETWEEN 19 AND 23) as evening_activity,
+                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM timestamp) BETWEEN 0 AND 5) as night_activity
+                FROM checkinjournal
+                {venue_filter}
+                GROUP BY {date_trunc}
+                ORDER BY period
+            """)
+            activity_data = cur.fetchall()
+            results['activity'] = [
+                {
+                    'period': str(row['period'].date()) if hasattr(row['period'], 'date') else str(row['period']),
+                    'total_checkins': row['total_checkins'],
+                    'unique_visitors': row['unique_visitors'],
+                    'restaurant_visits': row['restaurant_visits'],
+                    'pub_visits': row['pub_visits'],
+                    'home_activity': row['home_activity'],
+                    'work_activity': row['work_activity'],
+                    'morning_activity': row['morning_activity'],
+                    'midday_activity': row['midday_activity'],
+                    'afternoon_activity': row['afternoon_activity'],
+                    'evening_activity': row['evening_activity'],
+                    'night_activity': row['night_activity']
+                }
+                for row in activity_data
+            ]
+        
+        # Spending patterns over time
+        if metric in ['spending', 'all']:
+            cur.execute(f"""
+                SELECT 
+                    {date_trunc_fin} as period,
+                    COUNT(*) as transaction_count,
+                    COUNT(DISTINCT participantid) as unique_spenders,
+                    SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as total_income,
+                    SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) as total_spending,
+                    SUM(CASE WHEN category = 'Food' THEN ABS(amount) ELSE 0 END) as food_spending,
+                    SUM(CASE WHEN category = 'Recreation' THEN ABS(amount) ELSE 0 END) as recreation_spending,
+                    SUM(CASE WHEN category = 'Shelter' THEN ABS(amount) ELSE 0 END) as shelter_spending,
+                    SUM(CASE WHEN category = 'Education' THEN ABS(amount) ELSE 0 END) as education_spending,
+                    AVG(CASE WHEN amount < 0 THEN ABS(amount) END) as avg_transaction
+                FROM financialjournal
+                GROUP BY {date_trunc_fin}
+                ORDER BY period
+            """)
+            spending_data = cur.fetchall()
+            results['spending'] = [
+                {
+                    'period': str(row['period'].date()) if hasattr(row['period'], 'date') else str(row['period']),
+                    'transaction_count': row['transaction_count'],
+                    'unique_spenders': row['unique_spenders'],
+                    'total_income': float(row['total_income'] or 0),
+                    'total_spending': float(row['total_spending'] or 0),
+                    'food_spending': float(row['food_spending'] or 0),
+                    'recreation_spending': float(row['recreation_spending'] or 0),
+                    'shelter_spending': float(row['shelter_spending'] or 0),
+                    'education_spending': float(row['education_spending'] or 0),
+                    'avg_transaction': float(row['avg_transaction'] or 0)
+                }
+                for row in spending_data
+            ]
+        
+        # Social network changes over time
+        if metric in ['social', 'all']:
+            cur.execute(f"""
+                SELECT 
+                    {date_trunc} as period,
+                    COUNT(*) as interactions,
+                    COUNT(DISTINCT participantidfrom) as active_initiators,
+                    COUNT(DISTINCT participantidto) as contacted_people,
+                    COUNT(DISTINCT participantidfrom) + COUNT(DISTINCT participantidto) as total_social_participants
+                FROM socialnetwork
+                GROUP BY {date_trunc}
+                ORDER BY period
+            """)
+            social_data = cur.fetchall()
+            results['social'] = [
+                {
+                    'period': str(row['period'].date()) if hasattr(row['period'], 'date') else str(row['period']),
+                    'interactions': row['interactions'],
+                    'active_initiators': row['active_initiators'],
+                    'contacted_people': row['contacted_people'],
+                    'total_social_participants': row['total_social_participants']
+                }
+                for row in social_data
+            ]
+        
+        # Calculate trend summaries
+        if metric in ['activity', 'all'] and 'activity' in results and len(results['activity']) > 1:
+            first_period = results['activity'][0]
+            last_period = results['activity'][-1]
+            results['activity_trends'] = {
+                'checkin_change_pct': round((last_period['total_checkins'] - first_period['total_checkins']) / first_period['total_checkins'] * 100, 1) if first_period['total_checkins'] > 0 else 0,
+                'restaurant_change_pct': round((last_period['restaurant_visits'] - first_period['restaurant_visits']) / first_period['restaurant_visits'] * 100, 1) if first_period['restaurant_visits'] > 0 else 0,
+                'pub_change_pct': round((last_period['pub_visits'] - first_period['pub_visits']) / first_period['pub_visits'] * 100, 1) if first_period['pub_visits'] > 0 else 0
+            }
+        
+        if metric in ['spending', 'all'] and 'spending' in results and len(results['spending']) > 1:
+            first_period = results['spending'][0]
+            last_period = results['spending'][-1]
+            results['spending_trends'] = {
+                'spending_change_pct': round((last_period['total_spending'] - first_period['total_spending']) / first_period['total_spending'] * 100, 1) if first_period['total_spending'] > 0 else 0,
+                'food_change_pct': round((last_period['food_spending'] - first_period['food_spending']) / first_period['food_spending'] * 100, 1) if first_period['food_spending'] > 0 else 0,
+                'recreation_change_pct': round((last_period['recreation_spending'] - first_period['recreation_spending']) / first_period['recreation_spending'] * 100, 1) if first_period['recreation_spending'] > 0 else 0
+            }
+        
+        # Cache the result
+        _temporal_patterns_cache[cache_key] = results
+        
+        cur.close()
+        return_db_connection(conn)
+        
+        return jsonify(results)
+    
+    except Exception as e:
+        cur.close()
+        return_db_connection(conn)
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

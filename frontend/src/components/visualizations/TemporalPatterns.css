@@ -1,0 +1,221 @@
+.temporal-patterns {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.temporal-patterns .controls {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  background: #f8f9fa;
+  padding: 15px;
+  border-radius: 8px;
+}
+
+.temporal-patterns .control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.temporal-patterns .control-group label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+}
+
+.temporal-patterns .control-group select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  min-width: 150px;
+}
+
+.temporal-patterns .date-range-info {
+  text-align: center;
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 20px;
+  padding: 10px;
+  background: #e8f4f8;
+  border-radius: 4px;
+}
+
+.temporal-patterns .trend-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 15px;
+  margin-bottom: 25px;
+}
+
+.temporal-patterns .trend-card {
+  padding: 15px;
+  border-radius: 8px;
+  text-align: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.temporal-patterns .trend-card.positive {
+  background: linear-gradient(135deg, #d4edda, #c3e6cb);
+  border-left: 4px solid #28a745;
+}
+
+.temporal-patterns .trend-card.negative {
+  background: linear-gradient(135deg, #f8d7da, #f5c6cb);
+  border-left: 4px solid #dc3545;
+}
+
+.temporal-patterns .trend-label {
+  font-size: 12px;
+  color: #555;
+  margin-bottom: 5px;
+}
+
+.temporal-patterns .trend-value {
+  font-size: 22px;
+  font-weight: bold;
+}
+
+.temporal-patterns .trend-card.positive .trend-value {
+  color: #28a745;
+}
+
+.temporal-patterns .trend-card.negative .trend-value {
+  color: #dc3545;
+}
+
+.temporal-patterns .trend-type {
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+  margin-top: 5px;
+}
+
+.temporal-patterns .chart-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #eee;
+  padding-bottom: 10px;
+}
+
+.temporal-patterns .chart-tabs button {
+  padding: 10px 20px;
+  border: none;
+  background: #f0f0f0;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.temporal-patterns .chart-tabs button:hover:not(:disabled) {
+  background: #e0e0e0;
+}
+
+.temporal-patterns .chart-tabs button.active {
+  background: #3498db;
+  color: white;
+}
+
+.temporal-patterns .chart-tabs button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.temporal-patterns .charts-container {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  padding: 20px;
+  min-height: 420px;
+}
+
+.temporal-patterns .chart {
+  width: 100%;
+}
+
+.temporal-patterns .chart.hidden {
+  display: none;
+}
+
+.temporal-patterns .chart.visible {
+  display: block;
+}
+
+.temporal-patterns .time-of-day-analysis {
+  margin-top: 30px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  padding: 20px;
+}
+
+.temporal-patterns .time-of-day-analysis h3 {
+  margin: 0 0 20px 0;
+  font-size: 16px;
+  color: #333;
+}
+
+.temporal-patterns .time-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.temporal-patterns .time-bar-container {
+  display: grid;
+  grid-template-columns: 100px 1fr 80px;
+  align-items: center;
+  gap: 15px;
+}
+
+.temporal-patterns .time-label {
+  font-size: 13px;
+  color: #555;
+  font-weight: 500;
+}
+
+.temporal-patterns .time-bar {
+  height: 24px;
+  background: #eee;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.temporal-patterns .time-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3498db, #2980b9);
+  border-radius: 12px;
+  transition: width 0.3s ease;
+}
+
+.temporal-patterns .time-value {
+  font-size: 13px;
+  color: #666;
+  text-align: right;
+}
+
+.temporal-patterns .loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 400px;
+  font-size: 18px;
+  color: #666;
+}
+
+.temporal-patterns .error {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 400px;
+  font-size: 16px;
+  color: #dc3545;
+  background: #f8d7da;
+  border-radius: 8px;
+}

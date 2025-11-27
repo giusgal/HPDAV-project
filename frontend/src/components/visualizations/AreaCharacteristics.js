@@ -1,17 +1,8 @@
-/**
- * AreaCharacteristics - React Container Component
- */
-
-
-// TODO: Al primo caricamente della pagina, l'inizializzazione del SVG di D3 viene fatta 4 volte
-// Sistemare in modo che venga fatta solo una volta
-
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { useApi, fetchAreaCharacteristics } from '../../hooks/useApi';
-import AreaCharacteristicsChart from './d3/AreaCharacteristicsChart';
-import './AreaCharacteristics.css';
+import * as d3 from 'd3';
+import { useApi } from '../../hooks/useApi';
+import { fetchAreaCharacteristics } from '../../api';
 
-// Metric configuration - could be moved to a constants file
 const METRICS = [
   { id: 'population', label: 'Population', category: 'demographics', key: 'population' },
   { id: 'avg_age', label: 'Average Age', category: 'demographics', key: 'avg_age' },
@@ -32,137 +23,217 @@ const METRICS = [
 const GRID_SIZES = [250, 500, 750, 1000];
 
 function AreaCharacteristics() {
-  // Refs - Persist values across renders without causing re-renders
-  const svgRef = useRef(null);           // Reference to SVG DOM element
-  const tooltipRef = useRef(null);       // Reference to tooltip DOM element
-  const chartRef = useRef(null);         // Reference to D3 chart instance
-
-  // State - UI state managed by React
+  const svgRef = useRef(null);
+  const tooltipRef = useRef(null);
   const [selectedMetric, setSelectedMetric] = useState('population');
   const [gridSize, setGridSize] = useState(500);
   const [hoveredCell, setHoveredCell] = useState(null);
   
-  // API Data Fetching - Via useApi hook
-  const { data, loading, error, refetch } = useApi(
-    fetchAreaCharacteristics, 
-    { gridSize }, 
-    true  // autoFetch on mount
-  );
+  const { data, loading, error, refetch } = useApi(fetchAreaCharacteristics, { gridSize }, true);
 
-  // Memoized Values - Only recompute when dependencies change
-  
-  // Current metric configuration object
+  useEffect(() => {
+    refetch({ gridSize });
+  }, [gridSize]);
+
   const currentMetricConfig = useMemo(() => 
-    METRICS.find(m => m.id === selectedMetric), 
-    [selectedMetric]
-  );
+    METRICS.find(m => m.id === selectedMetric), [selectedMetric]);
 
-  // Process raw API data into format needed by D3
   const processedData = useMemo(() => {
     if (!data || !currentMetricConfig) return null;
     
     const categoryData = data[currentMetricConfig.category];
     if (!categoryData) return null;
 
-    // Transform cells with current metric's value
+    // Create a map for quick lookup
+    const dataMap = new Map();
+    categoryData.forEach(cell => {
+      const key = `${cell.grid_x},${cell.grid_y}`;
+      dataMap.set(key, cell);
+    });
+
+    // Get all grid cells with values
     const cells = categoryData.map(cell => ({
       ...cell,
       value: cell[currentMetricConfig.key]
     })).filter(cell => cell.value != null);
 
-    return { cells, bounds: data.bounds };
+    return { cells, dataMap, bounds: data.bounds };
   }, [data, currentMetricConfig]);
 
-  // Controller object - bridges D3 events to React state
-  // useMemo ensures stable reference (D3 won't rebind events unnecessarily)
-  const controller = useMemo(() => ({
-    // Called by D3 when user hovers over a cell
-    onCellHover: (cell, event) => {
-      setHoveredCell(cell);
-      if (tooltipRef.current) {
-        tooltipRef.current.style.display = 'block';
-        tooltipRef.current.style.left = `${event.clientX + 10}px`;
-        tooltipRef.current.style.top = `${event.clientY - 10}px`;
-      }
-    },
-    
-    // Called by D3 on mouse move (update tooltip position)
-    onMouseMove: (event) => {
-      if (tooltipRef.current) {
-        tooltipRef.current.style.left = `${event.clientX + 10}px`;
-        tooltipRef.current.style.top = `${event.clientY - 10}px`;
-      }
-    },
-    
-    // Called by D3 when mouse leaves a cell
-    onCellLeave: () => {
-      setHoveredCell(null);
-      if (tooltipRef.current) {
-        tooltipRef.current.style.display = 'none';
-      }
-    },
-  }), []); // Empty deps - controller is stable
-
-  // Effects - Side effects and lifecycle management
-
-  // Create D3 chart instance when SVG is available and data is ready
-  // We need processedData as a dependency to re-run when loading finishes
   useEffect(() => {
-    // Only initialize when SVG is available AND we have data (not loading)
-    if (svgRef.current && processedData && !chartRef.current) {
-      console.log('[AreaCharacteristics] Initializing D3 chart');
-      chartRef.current = new AreaCharacteristicsChart(svgRef.current, controller);
-      chartRef.current.initialize();
-      
-      // Immediately update with data
-      requestAnimationFrame(() => {
-        if (chartRef.current) {
-          console.log('[AreaCharacteristics] Updating chart with data:', processedData.cells.length, 'cells');
-          chartRef.current.update({
-            cells: processedData.cells,
-            bounds: processedData.bounds,
-            gridSize,
-            metricConfig: currentMetricConfig,
-          });
-        }
-      });
-    }
+    if (!processedData || !svgRef.current) return;
 
-    // Cleanup function - runs on unmount
-    return () => {
-      if (chartRef.current) {
-        chartRef.current.destroy();
-        chartRef.current = null;
-      }
-    };
-  }, [controller, processedData, gridSize, currentMetricConfig]);
+    const { cells, bounds } = processedData;
+    const container = svgRef.current.parentElement;
+    const width = container.clientWidth;
+    
+    // Calculate data dimensions to maintain aspect ratio
+    const dataWidth = bounds.max_x - bounds.min_x;
+    const dataHeight = bounds.max_y - bounds.min_y;
+    const dataAspectRatio = dataWidth / dataHeight;
+    
+    // Set height based on width to maintain aspect ratio
+    const margin = { top: 20, right: 120, bottom: 40, left: 60 };
+    const innerWidth = width - margin.left - margin.right;
+    const innerHeight = innerWidth / dataAspectRatio; // Maintain aspect ratio
+    const height = innerHeight + margin.top + margin.bottom;
 
-  // Update D3 chart when data or metric changes (after initial render)
-  useEffect(() => {
-    if (chartRef.current && processedData) {
-      // Use requestAnimationFrame to ensure DOM is ready and has dimensions
-      const rafId = requestAnimationFrame(() => {
-        if (chartRef.current) {
-          console.log('[AreaCharacteristics] Updating chart:', processedData.cells.length, 'cells');
-          chartRef.current.update({
-            cells: processedData.cells,
-            bounds: processedData.bounds,
-            gridSize,
-            metricConfig: currentMetricConfig,
-          });
-        }
+    // Clear previous content
+    d3.select(svgRef.current).selectAll('*').remove();
+
+    const svg = d3.select(svgRef.current)
+      .attr('width', width)
+      .attr('height', height);
+
+    const g = svg.append('g')
+      .attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Scales - Y-axis inverted to match image coordinates (top-down)
+    const xExtent = [bounds.min_x, bounds.max_x];
+    const yExtent = [bounds.min_y, bounds.max_y];
+    
+    const xScale = d3.scaleLinear()
+      .domain(xExtent)
+      .range([0, innerWidth]);
+
+    const yScale = d3.scaleLinear()
+      .domain(yExtent)
+      .range([innerHeight, 0]); // Inverted for image coordinates
+
+    // Add clipping path to prevent cells from going outside the chart area
+    svg.append('defs')
+      .append('clipPath')
+      .attr('id', 'chart-clip')
+      .append('rect')
+      .attr('x', 0)
+      .attr('y', 0)
+      .attr('width', innerWidth)
+      .attr('height', innerHeight);
+
+    // Add basemap image as background
+    // The basemap PNG is 1076x1144 pixels and should map to the full coordinate space
+    g.append('image')
+      .attr('href', `${process.env.PUBLIC_URL}/BaseMap.png`)
+      .attr('x', 0)
+      .attr('y', 0)
+      .attr('width', innerWidth)
+      .attr('height', innerHeight)
+      .attr('opacity', 0.4)
+      .attr('preserveAspectRatio', 'none');
+
+    const values = cells.map(c => c.value);
+    const colorScale = d3.scaleSequential(d3.interpolateViridis)
+      .domain([d3.min(values), d3.max(values)]);
+
+    // Calculate cell dimensions in pixels
+    const cellWidth = Math.abs(xScale(gridSize) - xScale(0));
+    const cellHeight = Math.abs(yScale(0) - yScale(gridSize));
+
+    // Create a group for cells with clipping
+    const cellsGroup = g.append('g')
+      .attr('clip-path', 'url(#chart-clip)');
+
+    // Draw cells with transparency
+    cellsGroup.selectAll('rect.cell')
+      .data(cells)
+      .enter()
+      .append('rect')
+      .attr('class', 'cell')
+      .attr('x', d => xScale(d.grid_x * gridSize))
+      .attr('y', d => yScale((d.grid_y + 1) * gridSize)) // +1 because Y is inverted
+      .attr('width', cellWidth)
+      .attr('height', cellHeight)
+      .attr('fill', d => colorScale(d.value))
+      .attr('opacity', 0.7)
+      .attr('stroke', '#fff')
+      .attr('stroke-width', 0.5)
+      .style('cursor', 'pointer')
+      .on('mouseover', (event, d) => {
+        setHoveredCell(d);
+        d3.select(event.target).attr('stroke', '#000').attr('stroke-width', 2);
+        
+        const tooltip = d3.select(tooltipRef.current);
+        tooltip.style('display', 'block')
+          .style('left', `${event.clientX + 10}px`)
+          .style('top', `${event.clientY - 10}px`);
+      })
+      .on('mousemove', (event) => {
+        d3.select(tooltipRef.current)
+          .style('left', `${event.clientX + 10}px`)
+          .style('top', `${event.clientY - 10}px`);
+      })
+      .on('mouseout', (event) => {
+        setHoveredCell(null);
+        d3.select(event.target).attr('stroke', '#fff').attr('stroke-width', 0.5);
+        d3.select(tooltipRef.current).style('display', 'none');
       });
-      
-      return () => cancelAnimationFrame(rafId);
-    }
+
+    // Axes - bottom for X
+    g.append('g')
+      .attr('transform', `translate(0,${innerHeight})`)
+      .call(d3.axisBottom(xScale).ticks(5))
+      .append('text')
+      .attr('x', innerWidth / 2)
+      .attr('y', 35)
+      .attr('fill', '#000')
+      .attr('text-anchor', 'middle')
+      .text('X Coordinate');
+
+    // Y axis - at top since Y increases downward in data space
+    g.append('g')
+      .call(d3.axisLeft(yScale).ticks(5))
+      .append('text')
+      .attr('transform', 'rotate(-90)')
+      .attr('y', -45)
+      .attr('x', -innerHeight / 2)
+      .attr('fill', '#000')
+      .attr('text-anchor', 'middle')
+      .text('Y Coordinate');
+
+    // Color legend
+    const legendWidth = 20;
+    const legendHeight = innerHeight;
+    const legendScale = d3.scaleLinear()
+      .domain(colorScale.domain())
+      .range([legendHeight, 0]);
+
+    const legendAxis = d3.axisRight(legendScale).ticks(5);
+
+    const legend = svg.append('g')
+      .attr('transform', `translate(${width - margin.right + 20},${margin.top})`);
+
+    const defs = svg.append('defs');
+    const gradient = defs.append('linearGradient')
+      .attr('id', 'legend-gradient')
+      .attr('x1', '0%').attr('y1', '100%')
+      .attr('x2', '0%').attr('y2', '0%');
+
+    gradient.selectAll('stop')
+      .data(d3.range(0, 1.01, 0.1))
+      .enter()
+      .append('stop')
+      .attr('offset', d => `${d * 100}%`)
+      .attr('stop-color', d => colorScale(d3.min(values) + d * (d3.max(values) - d3.min(values))));
+
+    legend.append('rect')
+      .attr('width', legendWidth)
+      .attr('height', legendHeight)
+      .style('fill', 'url(#legend-gradient)');
+
+    legend.append('g')
+      .attr('transform', `translate(${legendWidth},0)`)
+      .call(legendAxis);
+
+    legend.append('text')
+      .attr('transform', 'rotate(-90)')
+      .attr('y', -5)
+      .attr('x', -legendHeight / 2)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', '12px')
+      .text(currentMetricConfig.label);
+
   }, [processedData, gridSize, currentMetricConfig]);
 
-  // Refetch data when gridSize changes
-  useEffect(() => {
-    refetch({ gridSize });
-  }, [gridSize, refetch]);
-
-  // Helper Functions to format values for tooltip display
   const formatValue = (value, metricId) => {
     if (value == null) return 'N/A';
     if (metricId.includes('pct')) return `${(value * 100).toFixed(1)}%`;
@@ -172,13 +243,24 @@ function AreaCharacteristics() {
     return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
   };
 
-  // ==========================================================================
-  // Render
-  // ==========================================================================
+  if (loading) {
+    return (
+      <div className="visualization-container">
+        <div className="loading">Loading area characteristics...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="visualization-container">
+        <div className="error">Error: {error}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="visualization-container">
-      {/* Controls - React handles UI, state changes trigger D3 updates */}
       <div className="controls">
         <div className="control-group">
           <label htmlFor="metric-select">Metric:</label>
@@ -186,7 +268,6 @@ function AreaCharacteristics() {
             id="metric-select"
             value={selectedMetric} 
             onChange={(e) => setSelectedMetric(e.target.value)}
-            disabled={loading}
           >
             <optgroup label="Demographics">
               {METRICS.filter(m => m.category === 'demographics').map(m => (
@@ -216,7 +297,6 @@ function AreaCharacteristics() {
             id="grid-select"
             value={gridSize} 
             onChange={(e) => setGridSize(Number(e.target.value))}
-            disabled={loading}
           >
             {GRID_SIZES.map(size => (
               <option key={size} value={size}>{size} units</option>
@@ -225,23 +305,14 @@ function AreaCharacteristics() {
         </div>
       </div>
       
-      {/* Chart Container - SVG is always rendered so ref is available */}
       <div className="chart-container">
-        {loading && (
-          <div className="loading-overlay">Loading area characteristics...</div>
-        )}
-        {error && (
-          <div className="error-overlay">Error: {error}</div>
-        )}
         <svg ref={svgRef}></svg>
-        
-        {/* Tooltip - React renders content, D3 controls visibility/position */}
         <div ref={tooltipRef} className="tooltip" style={{ display: 'none' }}>
           {hoveredCell && (
             <>
               <strong>Area ({hoveredCell.grid_x}, {hoveredCell.grid_y})</strong>
               <br />
-              {currentMetricConfig?.label}: {formatValue(hoveredCell.value, selectedMetric)}
+              {currentMetricConfig.label}: {formatValue(hoveredCell.value, selectedMetric)}
               {hoveredCell.population && (
                 <><br />Population: {hoveredCell.population}</>
               )}
@@ -250,7 +321,6 @@ function AreaCharacteristics() {
         </div>
       </div>
 
-      {/* Info Panel - Pure React rendering */}
       <div className="info-panel">
         <h3>About This Visualization</h3>
         <p>
