@@ -33,4 +33,15 @@ export const fetchTrafficPatterns = async (params = {}) => {
   return response.data;
 };
 
+export const fetchParticipantRoutines = async (params = {}) => {
+  const { participantIds = '', date = 'typical' } = params;
+  const response = await api.get('/api/participant-routines', {
+    params: { 
+      participant_ids: participantIds,
+      date
+    }
+  });
+  return response.data;
+};
+
 export default api;

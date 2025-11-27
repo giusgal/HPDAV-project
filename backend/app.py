@@ -1,6 +1,7 @@
 import os
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
 import time
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -8,25 +9,42 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
+# Connection pool for better resource management
+_connection_pool = None
+
+def get_connection_pool():
+    """Get or create a connection pool."""
+    global _connection_pool
+    if _connection_pool is None:
+        _connection_pool = psycopg2.pool.ThreadedConnectionPool(
+            minconn=2,
+            maxconn=10,
+            host="db",
+            database="hpdavDB",
+            user="myuser",
+            password="mypassword"
+        )
+    return _connection_pool
+
 # Cache for participant locations (computed once)
 _participant_locations_cache = None
 # Cache for venue locations
 _venue_locations_cache = None
-# Cache for checkin data with locations
-_checkin_data_cache = None
 # Cache for hourly patterns
 _hourly_pattern_cache = None
-# Cache for flow data by grid size
-_flow_data_cache = {}
+# Cache for pre-aggregated traffic data (computed in SQL, not Python)
+_traffic_sql_cache = {}
 
 def get_db_connection():
-    conn = psycopg2.connect(
-        host="db",
-        database="hpdavDB",
-        user="myuser",
-        password="mypassword"
-    )
+    """Get a connection from the pool."""
+    pool = get_connection_pool()
+    conn = pool.getconn()
     return conn
+
+def return_db_connection(conn):
+    """Return a connection to the pool."""
+    pool = get_connection_pool()
+    pool.putconn(conn)
 
 def get_participant_locations(cur):
     """
@@ -89,38 +107,80 @@ def get_venue_locations(cur):
     return _venue_locations_cache
 
 
-def get_checkin_data(cur):
-    """Get all checkin data with timestamps and venue info, cached."""
-    global _checkin_data_cache
+def get_traffic_aggregation_sql(cur, grid_size, time_period, day_type):
+    """Get pre-aggregated traffic data using SQL - much faster than loading all rows."""
+    global _traffic_sql_cache
     
-    if _checkin_data_cache is not None:
-        return _checkin_data_cache
+    cache_key = (grid_size, time_period, day_type)
+    if cache_key in _traffic_sql_cache:
+        return _traffic_sql_cache[cache_key]
     
-    venue_locs = get_venue_locations(cur)
+    # Build time filter clause
+    time_clause = ""
+    if time_period == 'morning':
+        time_clause = "AND EXTRACT(HOUR FROM c.timestamp) >= 6 AND EXTRACT(HOUR FROM c.timestamp) < 10"
+    elif time_period == 'midday':
+        time_clause = "AND EXTRACT(HOUR FROM c.timestamp) >= 10 AND EXTRACT(HOUR FROM c.timestamp) < 14"
+    elif time_period == 'afternoon':
+        time_clause = "AND EXTRACT(HOUR FROM c.timestamp) >= 14 AND EXTRACT(HOUR FROM c.timestamp) < 18"
+    elif time_period == 'evening':
+        time_clause = "AND EXTRACT(HOUR FROM c.timestamp) >= 18 AND EXTRACT(HOUR FROM c.timestamp) < 22"
+    elif time_period == 'night':
+        time_clause = "AND (EXTRACT(HOUR FROM c.timestamp) >= 22 OR EXTRACT(HOUR FROM c.timestamp) < 6)"
     
-    # Fetch checkins without JOIN - much faster
-    cur.execute("""
-        SELECT participantid, timestamp, venueid, venuetype::text as venuetype
-        FROM checkinjournal
-    """)
+    # Build day filter clause
+    day_clause = ""
+    if day_type == 'weekday':
+        day_clause = "AND EXTRACT(DOW FROM c.timestamp) BETWEEN 1 AND 5"
+    elif day_type == 'weekend':
+        day_clause = "AND EXTRACT(DOW FROM c.timestamp) IN (0, 6)"
     
-    # Add location info in Python
-    _checkin_data_cache = []
-    for row in cur.fetchall():
-        key = (row['venueid'], row['venuetype'])
-        if key in venue_locs:
-            x, y = venue_locs[key]
-            _checkin_data_cache.append({
-                'participantid': row['participantid'],
-                'timestamp': row['timestamp'],
-                'venuetype': row['venuetype'],
-                'x': x,
-                'y': y,
-                'hour': row['timestamp'].hour,
-                'dow': row['timestamp'].weekday()  # 0=Monday, 6=Sunday
-            })
+    # Execute aggregation in SQL - much more efficient
+    query = f"""
+        WITH venue_locations AS (
+            SELECT restaurantid as venueid, 'Restaurant'::text as venuetype, location[0] as x, location[1] as y FROM restaurants
+            UNION ALL
+            SELECT pubid, 'Pub', location[0], location[1] FROM pubs
+            UNION ALL
+            SELECT apartmentid, 'Apartment', location[0], location[1] FROM apartments
+            UNION ALL
+            SELECT employerid, 'Workplace', location[0], location[1] FROM employers
+            UNION ALL
+            SELECT schoolid, 'School', location[0], location[1] FROM schools
+        ),
+        filtered_checkins AS (
+            SELECT 
+                c.participantid,
+                c.venuetype::text,
+                v.x,
+                v.y
+            FROM checkinjournal c
+            JOIN venue_locations v ON c.venueid = v.venueid AND c.venuetype::text = v.venuetype
+            WHERE 1=1 {time_clause} {day_clause}
+        )
+        SELECT 
+            FLOOR(x / {grid_size})::int as grid_x,
+            FLOOR(y / {grid_size})::int as grid_y,
+            COUNT(*) as total_visits,
+            COUNT(DISTINCT participantid) as unique_visitors,
+            COUNT(*) FILTER (WHERE venuetype = 'Restaurant') as restaurant_visits,
+            COUNT(*) FILTER (WHERE venuetype = 'Pub') as pub_visits,
+            COUNT(*) FILTER (WHERE venuetype = 'Apartment') as home_visits,
+            COUNT(*) FILTER (WHERE venuetype = 'Workplace') as work_visits,
+            COUNT(*) FILTER (WHERE venuetype = 'School') as school_visits,
+            MIN(x) as cell_x,
+            MIN(y) as cell_y
+        FROM filtered_checkins
+        GROUP BY FLOOR(x / {grid_size}), FLOOR(y / {grid_size})
+        ORDER BY total_visits DESC
+    """
     
-    return _checkin_data_cache
+    cur.execute(query)
+    traffic_data = [dict(row) for row in cur.fetchall()]
+    
+    # Cache the result
+    _traffic_sql_cache[cache_key] = traffic_data
+    return traffic_data
 
 
 def get_hourly_pattern(cur):
@@ -139,102 +199,9 @@ def get_hourly_pattern(cur):
         GROUP BY EXTRACT(HOUR FROM timestamp)
         ORDER BY hour
     """)
-    _hourly_pattern_cache = cur.fetchall()
+    _hourly_pattern_cache = [dict(row) for row in cur.fetchall()]
     return _hourly_pattern_cache
 
-
-# Pre-aggregated traffic cache: key = (grid_size, time_period, day_type)
-_traffic_cache = {}
-
-def get_traffic_aggregation(cur, grid_size, time_period, day_type):
-    """Get pre-aggregated traffic data, cached by parameters."""
-    global _traffic_cache
-    
-    cache_key = (grid_size, time_period, day_type)
-    if cache_key in _traffic_cache:
-        return _traffic_cache[cache_key]
-    
-    # Get checkin data (cached)
-    checkin_data = get_checkin_data(cur)
-    
-    # Apply filters
-    filtered_data = checkin_data
-    
-    if time_period == 'morning':
-        filtered_data = [c for c in filtered_data if 6 <= c['hour'] < 10]
-    elif time_period == 'midday':
-        filtered_data = [c for c in filtered_data if 10 <= c['hour'] < 14]
-    elif time_period == 'afternoon':
-        filtered_data = [c for c in filtered_data if 14 <= c['hour'] < 18]
-    elif time_period == 'evening':
-        filtered_data = [c for c in filtered_data if 18 <= c['hour'] < 22]
-    elif time_period == 'night':
-        filtered_data = [c for c in filtered_data if c['hour'] >= 22 or c['hour'] < 6]
-    
-    if day_type == 'weekday':
-        filtered_data = [c for c in filtered_data if c['dow'] < 5]
-    elif day_type == 'weekend':
-        filtered_data = [c for c in filtered_data if c['dow'] >= 5]
-    
-    # Aggregate by grid cell
-    grid_data = {}
-    for c in filtered_data:
-        gx = int(c['x'] // grid_size)
-        gy = int(c['y'] // grid_size)
-        key = (gx, gy)
-        
-        if key not in grid_data:
-            grid_data[key] = {
-                'grid_x': gx,
-                'grid_y': gy,
-                'total_visits': 0,
-                'participants': set(),
-                'restaurant_visits': 0,
-                'pub_visits': 0,
-                'home_visits': 0,
-                'work_visits': 0,
-                'school_visits': 0,
-                'cell_x': c['x'],
-                'cell_y': c['y']
-            }
-        
-        grid_data[key]['total_visits'] += 1
-        grid_data[key]['participants'].add(c['participantid'])
-        
-        vt = c['venuetype']
-        if vt == 'Restaurant':
-            grid_data[key]['restaurant_visits'] += 1
-        elif vt == 'Pub':
-            grid_data[key]['pub_visits'] += 1
-        elif vt == 'Apartment':
-            grid_data[key]['home_visits'] += 1
-        elif vt == 'Workplace':
-            grid_data[key]['work_visits'] += 1
-        elif vt == 'School':
-            grid_data[key]['school_visits'] += 1
-    
-    # Convert to list
-    traffic_data = []
-    for key, data in grid_data.items():
-        traffic_data.append({
-            'grid_x': data['grid_x'],
-            'grid_y': data['grid_y'],
-            'total_visits': data['total_visits'],
-            'unique_visitors': len(data['participants']),
-            'restaurant_visits': data['restaurant_visits'],
-            'pub_visits': data['pub_visits'],
-            'home_visits': data['home_visits'],
-            'work_visits': data['work_visits'],
-            'school_visits': data['school_visits'],
-            'cell_x': data['cell_x'],
-            'cell_y': data['cell_y']
-        })
-    
-    traffic_data.sort(key=lambda x: x['total_visits'], reverse=True)
-    
-    # Cache the result
-    _traffic_cache[cache_key] = traffic_data
-    return traffic_data
 
 @app.route('/')
 def index():
@@ -389,7 +356,7 @@ def area_characteristics():
                 GROUP BY FLOOR(x / %s), FLOOR(y / %s)
                 ORDER BY grid_x, grid_y
             """, (grid_size, grid_size, grid_size, grid_size))
-            results['venues'] = cur.fetchall()
+            results['venues'] = [dict(row) for row in cur.fetchall()]
         
         if metric in ['apartments', 'all']:
             # Aggregate apartment/building data by area (fast - small table)
@@ -406,16 +373,16 @@ def area_characteristics():
                 GROUP BY FLOOR(location[0] / %s), FLOOR(location[1] / %s)
                 ORDER BY grid_x, grid_y
             """, (grid_size, grid_size, grid_size, grid_size))
-            results['apartments'] = cur.fetchall()
+            results['apartments'] = [dict(row) for row in cur.fetchall()]
         
         cur.close()
-        conn.close()
+        return_db_connection(conn)
         
         return jsonify(results)
     
     except Exception as e:
         cur.close()
-        conn.close()
+        return_db_connection(conn)
         return jsonify({"error": str(e)}), 500
 
 
@@ -459,8 +426,8 @@ def traffic_patterns():
         results['time_period'] = time_period
         results['day_type'] = day_type
         
-        # Get pre-aggregated traffic data (cached)
-        traffic_data = get_traffic_aggregation(cur, grid_size, time_period, day_type)
+        # Get pre-aggregated traffic data using SQL (much faster, no memory issues)
+        traffic_data = get_traffic_aggregation_sql(cur, grid_size, time_period, day_type)
         results['traffic'] = traffic_data
         
         # Calculate statistics for bottleneck detection
@@ -483,13 +450,215 @@ def traffic_patterns():
         results['flows'] = []
         
         cur.close()
-        conn.close()
+        return_db_connection(conn)
         
         return jsonify(results)
     
     except Exception as e:
         cur.close()
-        conn.close()
+        return_db_connection(conn)
+        return jsonify({"error": str(e)}), 500
+
+
+# Cache for participant list
+_participants_cache = None
+
+@app.route('/api/participant-routines')
+def participant_routines():
+    """
+    Parametrized endpoint to get daily routines for one or two participants.
+    
+    Parameters:
+    - participant_ids: Comma-separated participant IDs (e.g., "1,2" or "1")
+    - date: Specific date to show (YYYY-MM-DD) or 'typical' for aggregated pattern (default: 'typical')
+    """
+    global _participants_cache
+    
+    participant_ids_str = request.args.get('participant_ids', '', type=str)
+    date_param = request.args.get('date', 'typical', type=str)
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    try:
+        results = {}
+        
+        # Get list of all participants with their characteristics (cached)
+        if _participants_cache is None:
+            cur.execute("""
+                SELECT 
+                    p.participantid,
+                    p.age,
+                    p.educationlevel::text as education,
+                    p.interestgroup,
+                    p.householdsize,
+                    p.havekids,
+                    p.joviality
+                FROM participants p
+                ORDER BY p.participantid
+            """)
+            _participants_cache = [dict(row) for row in cur.fetchall()]
+        
+        results['participants'] = _participants_cache
+        
+        # If no specific participants requested, return basic list for selection
+        if not participant_ids_str:
+            # Return summary based on checkinjournal (much faster than participantstatuslogs)
+            cur.execute("""
+                WITH participant_checkins AS (
+                    SELECT 
+                        participantid,
+                        COUNT(*) as total_checkins,
+                        COUNT(*) FILTER (WHERE venuetype = 'Apartment') as home_checkins,
+                        COUNT(*) FILTER (WHERE venuetype = 'Workplace') as work_checkins,
+                        COUNT(*) FILTER (WHERE venuetype = 'Restaurant') as restaurant_checkins,
+                        COUNT(*) FILTER (WHERE venuetype = 'Pub') as pub_checkins,
+                        COUNT(DISTINCT DATE(timestamp)) as days_tracked
+                    FROM checkinjournal
+                    GROUP BY participantid
+                )
+                SELECT 
+                    participantid,
+                    days_tracked,
+                    ROUND(100.0 * home_checkins / NULLIF(total_checkins, 0), 1) as pct_at_home,
+                    ROUND(100.0 * work_checkins / NULLIF(total_checkins, 0), 1) as pct_at_work,
+                    ROUND(100.0 * restaurant_checkins / NULLIF(total_checkins, 0), 1) as pct_restaurant,
+                    ROUND(100.0 * pub_checkins / NULLIF(total_checkins, 0), 1) as pct_recreation
+                FROM participant_checkins
+                ORDER BY participantid
+            """)
+            results['routine_summaries'] = [dict(row) for row in cur.fetchall()]
+            cur.close()
+            return_db_connection(conn)
+            return jsonify(results)
+        
+        # Parse participant IDs
+        try:
+            participant_ids = [int(x.strip()) for x in participant_ids_str.split(',') if x.strip()]
+        except ValueError:
+            cur.close()
+            return_db_connection(conn)
+            return jsonify({"error": "Invalid participant IDs"}), 400
+        
+        if len(participant_ids) == 0 or len(participant_ids) > 2:
+            cur.close()
+            return_db_connection(conn)
+            return jsonify({"error": "Please provide 1 or 2 participant IDs"}), 400
+        
+        # Get detailed routine data for selected participants
+        routines = {}
+        
+        for pid in participant_ids:
+            # Get participant info
+            participant_info = next((p for p in _participants_cache if p['participantid'] == pid), None)
+            
+            # Use checkinjournal for typical pattern (much faster than participantstatuslogs)
+            cur.execute("""
+                SELECT 
+                    EXTRACT(HOUR FROM timestamp)::int as hour,
+                    venuetype::text as activity,
+                    COUNT(*) as count
+                FROM checkinjournal
+                WHERE participantid = %s
+                GROUP BY EXTRACT(HOUR FROM timestamp), venuetype
+                ORDER BY hour, count DESC
+            """, (pid,))
+            hourly_data = cur.fetchall()
+            
+            # Convert to timeline format
+            hourly_pattern = {}
+            for row in hourly_data:
+                hour = row['hour']
+                if hour not in hourly_pattern:
+                    hourly_pattern[hour] = []
+                # Map venue types to activity names
+                activity_map = {
+                    'Apartment': 'AtHome',
+                    'Workplace': 'AtWork',
+                    'Restaurant': 'AtRestaurant',
+                    'Pub': 'AtRecreation',
+                    'School': 'AtWork'
+                }
+                hourly_pattern[hour].append({
+                    'activity': activity_map.get(row['activity'], row['activity']),
+                    'count': row['count']
+                })
+            
+            # Build timeline
+            timeline = []
+            for hour in range(24):
+                if hour in hourly_pattern:
+                    acts = hourly_pattern[hour]
+                    dominant = max(acts, key=lambda x: x['count'])
+                    total_count = sum(a['count'] for a in acts)
+                    timeline.append({
+                        'hour': hour,
+                        'dominant_activity': dominant['activity'],
+                        'confidence': round(dominant['count'] / total_count * 100, 1),
+                        'activities': acts
+                    })
+                else:
+                    timeline.append({
+                        'hour': hour,
+                        'dominant_activity': 'Unknown',
+                        'confidence': 0,
+                        'activities': []
+                    })
+            
+            # Get days tracked
+            cur.execute("""
+                SELECT COUNT(DISTINCT DATE(timestamp)) as days
+                FROM checkinjournal WHERE participantid = %s
+            """, (pid,))
+            days_result = cur.fetchone()
+            
+            routines[pid] = {
+                'participant': participant_info,
+                'type': 'typical',
+                'timeline': timeline,
+                'days_sampled': days_result['days'] if days_result else 0
+            }
+        
+        # Get checkin data for these participants (venue visits)
+        for pid in participant_ids:
+            if date_param == 'typical':
+                cur.execute("""
+                    SELECT 
+                        EXTRACT(HOUR FROM timestamp)::int as hour,
+                        venuetype::text as venue_type,
+                        COUNT(*) as visit_count
+                    FROM checkinjournal
+                    WHERE participantid = %s
+                    GROUP BY EXTRACT(HOUR FROM timestamp), venuetype
+                    ORDER BY hour
+                """, (pid,))
+            else:
+                cur.execute("""
+                    SELECT 
+                        EXTRACT(HOUR FROM timestamp)::int as hour,
+                        venuetype::text as venue_type,
+                        COUNT(*) as visit_count
+                    FROM checkinjournal
+                    WHERE participantid = %s AND DATE(timestamp) = %s
+                    GROUP BY EXTRACT(HOUR FROM timestamp), venuetype
+                    ORDER BY hour
+                """, (pid, date_param))
+            
+            checkins = [dict(row) for row in cur.fetchall()]
+            if pid in routines:
+                routines[pid]['checkins'] = checkins
+        
+        results['routines'] = routines
+        results['selected_ids'] = participant_ids
+        
+        cur.close()
+        return_db_connection(conn)
+        
+        return jsonify(results)
+    
+    except Exception as e:
+        cur.close()
+        return_db_connection(conn)
         return jsonify({"error": str(e)}), 500
 
 
