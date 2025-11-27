@@ -75,6 +75,15 @@ export const fetchHeatmapData = async (params = {}) => {
   return response.data;
 };
 
+/**
+ * Fetch buildings map data including building polygons and venue locations.
+ * @returns {Promise<Object>} Buildings and venues data
+ */
+export const fetchBuildingsMapData = async () => {
+  const response = await apiClient.get('/api/buildings-map');
+  return response.data;
+};
+
 // =============================================================================
 // useApi Hook
 // =============================================================================

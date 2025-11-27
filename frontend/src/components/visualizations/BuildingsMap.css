@@ -1,0 +1,108 @@
+/**
+ * BuildingsMap.css - Styles for the Buildings Map visualization
+ */
+
+.buildings-map-container {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+/* Layer controls styling */
+.layer-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.control-label {
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.checkbox-label:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
+
+.color-indicator {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+}
+
+/* Legend panel styling */
+.legend-panel {
+  background: #f8f9fa;
+  padding: 12px 15px;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+.legend-panel h4 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  color: #333;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.legend-item:last-child {
+  margin-bottom: 0;
+}
+
+.legend-polygon {
+  display: inline-block;
+  width: 20px;
+  height: 14px;
+  border-radius: 2px;
+}
+
+.legend-circle {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid #fff;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Building polygon styles (via D3, but can be augmented) */
+.building:hover {
+  filter: brightness(1.1);
+}
+
+/* Venue point styles */
+.venues-layer circle {
+  transition: r 0.15s ease-out;
+}

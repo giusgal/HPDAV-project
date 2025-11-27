@@ -106,8 +106,6 @@ def index():
 
 @app.route('/api/area-characteristics')
 def area_characteristics():
-    total_start = time.time()
-
     grid_size = request.args.get('grid_size', 500, type=int)
     metric = request.args.get('metric', 'all', type=str)
 
@@ -323,6 +321,135 @@ def area_characteristics():
 # =============================================================
 # Main entry point
 # =============================================================
+
+@app.route('/api/buildings-map')
+def buildings_map():
+    """
+    API endpoint to get building polygons and venue locations for the map visualization.
+    Returns buildings with their polygon coordinates and all venue types with their point locations.
+    """
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    try:
+        results = {}
+
+        # Get city bounds from apartments (covers the same area as buildings)
+        t0 = time.time()
+        cur.execute("""
+            SELECT 
+                MIN(location[0]) as min_x, MAX(location[0]) as max_x,
+                MIN(location[1]) as min_y, MAX(location[1]) as max_y
+            FROM apartments
+        """)
+        bounds = cur.fetchone()
+        
+        results['bounds'] = bounds
+        logger.info(f"Bounds query time = {time.time() - t0:.3f}s")
+
+        # Get all buildings with their polygon locations
+        t0 = time.time()
+        cur.execute("""
+            SELECT 
+                buildingid,
+                location::text as location,
+                buildingtype::text as buildingtype,
+                maxoccupancy
+            FROM buildings
+        """)
+        results['buildings'] = cur.fetchall()
+        logger.info(f"Buildings query time = {time.time() - t0:.3f}s, count = {len(results['buildings'])}")
+
+        # Get all venue locations
+        venues = {}
+
+        # Apartments
+        t0 = time.time()
+        cur.execute("""
+            SELECT 
+                apartmentid as id,
+                location[0] as x,
+                location[1] as y,
+                buildingid,
+                rentalcost,
+                maxoccupancy,
+                numberofrooms
+            FROM apartments
+        """)
+        venues['apartments'] = cur.fetchall()
+        logger.info(f"Apartments query time = {time.time() - t0:.3f}s, count = {len(venues['apartments'])}")
+
+        # Employers
+        t0 = time.time()
+        cur.execute("""
+            SELECT 
+                employerid as id,
+                location[0] as x,
+                location[1] as y,
+                buildingid
+            FROM employers
+        """)
+        venues['employers'] = cur.fetchall()
+        logger.info(f"Employers query time = {time.time() - t0:.3f}s, count = {len(venues['employers'])}")
+
+        # Pubs
+        t0 = time.time()
+        cur.execute("""
+            SELECT 
+                pubid as id,
+                location[0] as x,
+                location[1] as y,
+                buildingid,
+                hourlycost,
+                maxoccupancy
+            FROM pubs
+        """)
+        venues['pubs'] = cur.fetchall()
+        logger.info(f"Pubs query time = {time.time() - t0:.3f}s, count = {len(venues['pubs'])}")
+
+        # Restaurants
+        t0 = time.time()
+        cur.execute("""
+            SELECT 
+                restaurantid as id,
+                location[0] as x,
+                location[1] as y,
+                buildingid,
+                foodcost,
+                maxoccupancy
+            FROM restaurants
+        """)
+        venues['restaurants'] = cur.fetchall()
+        logger.info(f"Restaurants query time = {time.time() - t0:.3f}s, count = {len(venues['restaurants'])}")
+
+        # Schools
+        t0 = time.time()
+        cur.execute("""
+            SELECT 
+                schoolid as id,
+                location[0] as x,
+                location[1] as y,
+                buildingid,
+                monthlyfees,
+                maxenrollment
+            FROM schools
+        """)
+        venues['schools'] = cur.fetchall()
+        logger.info(f"Schools query time = {time.time() - t0:.3f}s, count = {len(venues['schools'])}")
+
+        results['venues'] = venues
+
+        return jsonify(results)
+
+    except Exception as e:
+        logger.error("Error in /api/buildings-map", exc_info=e)
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        cur.close()
+        conn.close()
+
+
 if __name__ == '__main__':
     logger.info("Starting Flask server on 0.0.0.0:5000 ...")
     app.run(host='0.0.0.0', port=5000)
