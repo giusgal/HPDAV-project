@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import * as d3 from 'd3';
 import { fetchTemporalPatterns } from '../../hooks/useApi';
+import { ActivityChart, SpendingChart, SocialChart } from './d3/TemporalPatternsChart';
 import './TemporalPatterns.css';
 
 const TemporalPatterns = () => {
@@ -14,10 +14,15 @@ const TemporalPatterns = () => {
   const [venueType, setVenueType] = useState('all');
   const [activeChart, setActiveChart] = useState('activity');
   
-  // Refs for D3 charts
+  // Refs for D3 chart containers
   const activityChartRef = useRef(null);
   const spendingChartRef = useRef(null);
   const socialChartRef = useRef(null);
+  
+  // Refs for D3 chart instances
+  const activityChartInstance = useRef(null);
+  const spendingChartInstance = useRef(null);
+  const socialChartInstance = useRef(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -36,385 +41,68 @@ const TemporalPatterns = () => {
     loadData();
   }, [loadData]);
 
-  // Draw activity chart
+  // Update activity chart when data/tab changes
   useEffect(() => {
-    if (!data?.activity || !activityChartRef.current || activeChart !== 'activity') return;
+    if (!activityChartRef.current || !data?.activity || activeChart !== 'activity') return;
 
-    const container = activityChartRef.current;
-    d3.select(container).selectAll('*').remove();
+    // Initialize chart if not already done
+    if (!activityChartInstance.current) {
+      activityChartInstance.current = new ActivityChart(activityChartRef.current);
+      activityChartInstance.current.initialize();
+    }
 
-    const margin = { top: 40, right: 120, bottom: 60, left: 70 };
-    const width = container.clientWidth - margin.left - margin.right;
-    const height = 400 - margin.top - margin.bottom;
+    activityChartInstance.current.update({
+      activityData: data.activity
+    });
+  }, [data, activeChart]);
 
-    const svg = d3.select(container)
-      .append('svg')
-      .attr('width', width + margin.left + margin.right)
-      .attr('height', height + margin.top + margin.bottom)
-      .append('g')
-      .attr('transform', `translate(${margin.left},${margin.top})`);
+  // Update spending chart when data/tab changes
+  useEffect(() => {
+    if (!spendingChartRef.current || !data?.spending || activeChart !== 'spending') return;
 
-    // Parse dates
-    const parseDate = d3.timeParse('%Y-%m-%d');
-    const activityData = data.activity.map(d => ({
-      ...d,
-      date: parseDate(d.period)
-    })).filter(d => d.date);
+    // Initialize chart if not already done
+    if (!spendingChartInstance.current) {
+      spendingChartInstance.current = new SpendingChart(spendingChartRef.current);
+      spendingChartInstance.current.initialize();
+    }
 
-    // Scales
-    const x = d3.scaleTime()
-      .domain(d3.extent(activityData, d => d.date))
-      .range([0, width]);
+    spendingChartInstance.current.update({
+      spendingData: data.spending
+    });
+  }, [data, activeChart]);
 
-    const maxY = d3.max(activityData, d => Math.max(
-      d.restaurant_visits, d.pub_visits, d.home_activity, d.work_activity
-    ));
+  // Update social chart when data/tab changes
+  useEffect(() => {
+    if (!socialChartRef.current || !data?.social || activeChart !== 'social') return;
 
-    const y = d3.scaleLinear()
-      .domain([0, maxY * 1.1])
-      .range([height, 0]);
+    // Initialize chart if not already done
+    if (!socialChartInstance.current) {
+      socialChartInstance.current = new SocialChart(socialChartRef.current);
+      socialChartInstance.current.initialize();
+    }
 
-    // Color scale for venue types
-    const color = d3.scaleOrdinal()
-      .domain(['restaurant_visits', 'pub_visits', 'home_activity', 'work_activity'])
-      .range(['#e74c3c', '#9b59b6', '#3498db', '#2ecc71']);
+    socialChartInstance.current.update({
+      socialData: data.social
+    });
+  }, [data, activeChart]);
 
-    const labels = {
-      'restaurant_visits': 'Restaurant',
-      'pub_visits': 'Pub',
-      'home_activity': 'Home',
-      'work_activity': 'Work'
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (activityChartInstance.current) {
+        activityChartInstance.current.destroy();
+        activityChartInstance.current = null;
+      }
+      if (spendingChartInstance.current) {
+        spendingChartInstance.current.destroy();
+        spendingChartInstance.current = null;
+      }
+      if (socialChartInstance.current) {
+        socialChartInstance.current.destroy();
+        socialChartInstance.current = null;
+      }
     };
-
-    // Axes
-    svg.append('g')
-      .attr('transform', `translate(0,${height})`)
-      .call(d3.axisBottom(x).ticks(8).tickFormat(d3.timeFormat('%b %d')))
-      .selectAll('text')
-      .attr('transform', 'rotate(-45)')
-      .style('text-anchor', 'end');
-
-    svg.append('g')
-      .call(d3.axisLeft(y).tickFormat(d3.format('.2s')));
-
-    // Y axis label
-    svg.append('text')
-      .attr('transform', 'rotate(-90)')
-      .attr('y', -50)
-      .attr('x', -height / 2)
-      .attr('text-anchor', 'middle')
-      .style('font-size', '12px')
-      .text('Check-ins');
-
-    // Lines
-    const line = d3.line()
-      .x(d => x(d.date))
-      .y(d => y(d.value))
-      .curve(d3.curveMonotoneX);
-
-    const metrics = ['restaurant_visits', 'pub_visits', 'home_activity', 'work_activity'];
-
-    metrics.forEach(metricKey => {
-      const lineData = activityData.map(d => ({ date: d.date, value: d[metricKey] }));
-      
-      svg.append('path')
-        .datum(lineData)
-        .attr('fill', 'none')
-        .attr('stroke', color(metricKey))
-        .attr('stroke-width', 2)
-        .attr('d', line);
-
-      // Add dots
-      svg.selectAll(`.dot-${metricKey}`)
-        .data(lineData)
-        .enter()
-        .append('circle')
-        .attr('class', `dot-${metricKey}`)
-        .attr('cx', d => x(d.date))
-        .attr('cy', d => y(d.value))
-        .attr('r', 3)
-        .attr('fill', color(metricKey))
-        .style('opacity', 0.7);
-    });
-
-    // Legend
-    const legend = svg.append('g')
-      .attr('transform', `translate(${width + 10}, 0)`);
-
-    metrics.forEach((metricKey, i) => {
-      const g = legend.append('g')
-        .attr('transform', `translate(0, ${i * 22})`);
-      
-      g.append('rect')
-        .attr('width', 16)
-        .attr('height', 16)
-        .attr('fill', color(metricKey));
-      
-      g.append('text')
-        .attr('x', 22)
-        .attr('y', 12)
-        .style('font-size', '11px')
-        .text(labels[metricKey]);
-    });
-
-    // Title
-    svg.append('text')
-      .attr('x', width / 2)
-      .attr('y', -15)
-      .attr('text-anchor', 'middle')
-      .style('font-size', '14px')
-      .style('font-weight', 'bold')
-      .text('Activity Patterns Over Time');
-
-  }, [data, activeChart]);
-
-  // Draw spending chart
-  useEffect(() => {
-    if (!data?.spending || !spendingChartRef.current || activeChart !== 'spending') return;
-
-    const container = spendingChartRef.current;
-    d3.select(container).selectAll('*').remove();
-
-    const margin = { top: 40, right: 120, bottom: 60, left: 80 };
-    const width = container.clientWidth - margin.left - margin.right;
-    const height = 400 - margin.top - margin.bottom;
-
-    const svg = d3.select(container)
-      .append('svg')
-      .attr('width', width + margin.left + margin.right)
-      .attr('height', height + margin.top + margin.bottom)
-      .append('g')
-      .attr('transform', `translate(${margin.left},${margin.top})`);
-
-    const parseDate = d3.timeParse('%Y-%m-%d');
-    const spendingData = data.spending.map(d => ({
-      ...d,
-      date: parseDate(d.period)
-    })).filter(d => d.date);
-
-    const x = d3.scaleTime()
-      .domain(d3.extent(spendingData, d => d.date))
-      .range([0, width]);
-
-    const maxY = d3.max(spendingData, d => Math.max(
-      d.food_spending, d.recreation_spending, d.shelter_spending
-    ));
-
-    const y = d3.scaleLinear()
-      .domain([0, maxY * 1.1])
-      .range([height, 0]);
-
-    const color = d3.scaleOrdinal()
-      .domain(['food_spending', 'recreation_spending', 'shelter_spending', 'education_spending'])
-      .range(['#e67e22', '#9b59b6', '#3498db', '#1abc9c']);
-
-    const labels = {
-      'food_spending': 'Food',
-      'recreation_spending': 'Recreation',
-      'shelter_spending': 'Shelter',
-      'education_spending': 'Education'
-    };
-
-    svg.append('g')
-      .attr('transform', `translate(0,${height})`)
-      .call(d3.axisBottom(x).ticks(8).tickFormat(d3.timeFormat('%b %d')))
-      .selectAll('text')
-      .attr('transform', 'rotate(-45)')
-      .style('text-anchor', 'end');
-
-    svg.append('g')
-      .call(d3.axisLeft(y).tickFormat(d => `$${d3.format('.2s')(d)}`));
-
-    svg.append('text')
-      .attr('transform', 'rotate(-90)')
-      .attr('y', -60)
-      .attr('x', -height / 2)
-      .attr('text-anchor', 'middle')
-      .style('font-size', '12px')
-      .text('Spending ($)');
-
-    // Stacked area chart
-    const stack = d3.stack()
-      .keys(['food_spending', 'recreation_spending', 'shelter_spending', 'education_spending'])
-      .order(d3.stackOrderNone)
-      .offset(d3.stackOffsetNone);
-
-    const series = stack(spendingData);
-
-    const area = d3.area()
-      .x(d => x(d.data.date))
-      .y0(d => y(d[0]))
-      .y1(d => y(d[1]))
-      .curve(d3.curveMonotoneX);
-
-    svg.selectAll('.area')
-      .data(series)
-      .enter()
-      .append('path')
-      .attr('class', 'area')
-      .attr('fill', d => color(d.key))
-      .attr('opacity', 0.7)
-      .attr('d', area);
-
-    // Legend
-    const legend = svg.append('g')
-      .attr('transform', `translate(${width + 10}, 0)`);
-
-    const keys = ['food_spending', 'recreation_spending', 'shelter_spending', 'education_spending'];
-    keys.forEach((key, i) => {
-      const g = legend.append('g')
-        .attr('transform', `translate(0, ${i * 22})`);
-      
-      g.append('rect')
-        .attr('width', 16)
-        .attr('height', 16)
-        .attr('fill', color(key))
-        .attr('opacity', 0.7);
-      
-      g.append('text')
-        .attr('x', 22)
-        .attr('y', 12)
-        .style('font-size', '11px')
-        .text(labels[key]);
-    });
-
-    svg.append('text')
-      .attr('x', width / 2)
-      .attr('y', -15)
-      .attr('text-anchor', 'middle')
-      .style('font-size', '14px')
-      .style('font-weight', 'bold')
-      .text('Spending Patterns Over Time');
-
-  }, [data, activeChart]);
-
-  // Draw social chart
-  useEffect(() => {
-    if (!data?.social || !socialChartRef.current || activeChart !== 'social') return;
-
-    const container = socialChartRef.current;
-    d3.select(container).selectAll('*').remove();
-
-    const margin = { top: 40, right: 120, bottom: 60, left: 70 };
-    const width = container.clientWidth - margin.left - margin.right;
-    const height = 400 - margin.top - margin.bottom;
-
-    const svg = d3.select(container)
-      .append('svg')
-      .attr('width', width + margin.left + margin.right)
-      .attr('height', height + margin.top + margin.bottom)
-      .append('g')
-      .attr('transform', `translate(${margin.left},${margin.top})`);
-
-    const parseDate = d3.timeParse('%Y-%m-%d');
-    const socialData = data.social.map(d => ({
-      ...d,
-      date: parseDate(d.period)
-    })).filter(d => d.date);
-
-    const x = d3.scaleTime()
-      .domain(d3.extent(socialData, d => d.date))
-      .range([0, width]);
-
-    const y = d3.scaleLinear()
-      .domain([0, d3.max(socialData, d => d.interactions) * 1.1])
-      .range([height, 0]);
-
-    const y2 = d3.scaleLinear()
-      .domain([0, d3.max(socialData, d => d.active_initiators) * 1.1])
-      .range([height, 0]);
-
-    svg.append('g')
-      .attr('transform', `translate(0,${height})`)
-      .call(d3.axisBottom(x).ticks(8).tickFormat(d3.timeFormat('%b %d')))
-      .selectAll('text')
-      .attr('transform', 'rotate(-45)')
-      .style('text-anchor', 'end');
-
-    svg.append('g')
-      .call(d3.axisLeft(y).tickFormat(d3.format('.2s')));
-
-    svg.append('g')
-      .attr('transform', `translate(${width}, 0)`)
-      .call(d3.axisRight(y2).tickFormat(d3.format('.2s')))
-      .selectAll('text')
-      .style('fill', '#e74c3c');
-
-    svg.append('text')
-      .attr('transform', 'rotate(-90)')
-      .attr('y', -50)
-      .attr('x', -height / 2)
-      .attr('text-anchor', 'middle')
-      .style('font-size', '12px')
-      .text('Interactions');
-
-    // Bar chart for interactions
-    const barWidth = Math.max(2, (width / socialData.length) - 2);
-    
-    svg.selectAll('.bar')
-      .data(socialData)
-      .enter()
-      .append('rect')
-      .attr('class', 'bar')
-      .attr('x', d => x(d.date) - barWidth / 2)
-      .attr('y', d => y(d.interactions))
-      .attr('width', barWidth)
-      .attr('height', d => height - y(d.interactions))
-      .attr('fill', '#3498db')
-      .attr('opacity', 0.6);
-
-    // Line for active participants
-    const line = d3.line()
-      .x(d => x(d.date))
-      .y(d => y2(d.active_initiators))
-      .curve(d3.curveMonotoneX);
-
-    svg.append('path')
-      .datum(socialData)
-      .attr('fill', 'none')
-      .attr('stroke', '#e74c3c')
-      .attr('stroke-width', 2.5)
-      .attr('d', line);
-
-    // Legend
-    const legend = svg.append('g')
-      .attr('transform', `translate(${width - 150}, -30)`);
-
-    legend.append('rect')
-      .attr('width', 16)
-      .attr('height', 16)
-      .attr('fill', '#3498db')
-      .attr('opacity', 0.6);
-    
-    legend.append('text')
-      .attr('x', 22)
-      .attr('y', 12)
-      .style('font-size', '11px')
-      .text('Interactions');
-
-    legend.append('line')
-      .attr('x1', 100)
-      .attr('x2', 116)
-      .attr('y1', 8)
-      .attr('y2', 8)
-      .attr('stroke', '#e74c3c')
-      .attr('stroke-width', 2.5);
-    
-    legend.append('text')
-      .attr('x', 122)
-      .attr('y', 12)
-      .style('font-size', '11px')
-      .text('Active Users');
-
-    svg.append('text')
-      .attr('x', width / 2)
-      .attr('y', -15)
-      .attr('text-anchor', 'middle')
-      .style('font-size', '14px')
-      .style('font-weight', 'bold')
-      .text('Social Activity Over Time');
-
-  }, [data, activeChart]);
+  }, []);
 
   // Render trend cards
   const renderTrendCards = () => {
@@ -478,11 +166,11 @@ const TemporalPatterns = () => {
   };
 
   if (loading) {
-    return <div className="loading">Loading temporal patterns...</div>;
+    return <div className="temporal-patterns"><div className="loading">Loading temporal patterns...</div></div>;
   }
 
   if (error) {
-    return <div className="error">Error: {error}</div>;
+    return <div className="temporal-patterns"><div className="error">Error: {error}</div></div>;
   }
 
   return (

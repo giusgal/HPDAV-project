@@ -1,24 +1,8 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { useApi, fetchParticipantRoutines } from '../../hooks/useApi';
-
-const ACTIVITY_COLORS = {
-  'AtHome': '#4CAF50',
-  'AtWork': '#2196F3',
-  'AtRecreation': '#FF9800',
-  'AtRestaurant': '#E91E63',
-  'Transport': '#9C27B0',
-  'Unknown': '#BDBDBD'
-};
-
-const ACTIVITY_LABELS = {
-  'AtHome': 'At Home',
-  'AtWork': 'At Work',
-  'AtRecreation': 'Recreation',
-  'AtRestaurant': 'Restaurant',
-  'Transport': 'Commuting',
-  'Unknown': 'Unknown'
-};
+import DailyRoutinesChart, { ACTIVITY_COLORS, ACTIVITY_LABELS } from './d3/DailyRoutinesChart';
+import './DailyRoutines.css';
 
 // Pre-selected interesting participants with different routines
 const SUGGESTED_PAIRS = [
@@ -29,10 +13,14 @@ const SUGGESTED_PAIRS = [
 
 function DailyRoutines() {
   const timelineRef = useRef(null);
+  const tooltipRef = useRef(null);
+  const chartRef = useRef(null);
+  
   const [participant1, setParticipant1] = useState('');
   const [participant2, setParticipant2] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(true);
+  const [tooltipContent, setTooltipContent] = useState(null);
   
   // First, fetch the list of participants
   const { data: listData, loading: listLoading } = useApi(
@@ -53,7 +41,7 @@ function DailyRoutines() {
     if (selectedIds.length > 0) {
       refetchRoutines({ participantIds: selectedIds.join(',') });
     }
-  }, [selectedIds]);
+  }, [selectedIds, refetchRoutines]);
 
   const handleCompare = () => {
     const ids = [];
@@ -78,197 +66,115 @@ function DailyRoutines() {
     return listData.routine_summaries;
   }, [listData]);
 
-  // Draw timeline visualization
-  useEffect(() => {
-    if (!routineData?.routines || !timelineRef.current) return;
-
-    const routines = routineData.routines;
-    const participantIds = Object.keys(routines).map(Number);
-    
-    if (participantIds.length === 0) return;
-
-    const container = timelineRef.current;
-    const width = container.clientWidth;
-    const rowHeight = 60;
-    const margin = { top: 40, right: 30, bottom: 60, left: 150 };
-    const innerWidth = width - margin.left - margin.right;
-    const height = margin.top + margin.bottom + (participantIds.length * rowHeight * 2);
-
-    d3.select(container).selectAll('*').remove();
-
-    const svg = d3.select(container)
-      .append('svg')
-      .attr('width', width)
-      .attr('height', height);
-
-    const g = svg.append('g')
-      .attr('transform', `translate(${margin.left},${margin.top})`);
-
-    // Time scale (0-24 hours)
-    const xScale = d3.scaleLinear()
-      .domain([0, 24])
-      .range([0, innerWidth]);
-
-    // Draw time axis
-    const timeAxis = d3.axisTop(xScale)
-      .ticks(24)
-      .tickFormat(d => `${d}:00`);
-
-    g.append('g')
-      .attr('class', 'time-axis')
-      .call(timeAxis)
-      .selectAll('text')
-      .style('font-size', '10px')
-      .attr('transform', 'rotate(-45)')
-      .attr('text-anchor', 'start');
-
-    // Draw grid lines
-    g.selectAll('.grid-line')
-      .data(d3.range(0, 25, 3))
-      .enter()
-      .append('line')
-      .attr('class', 'grid-line')
-      .attr('x1', d => xScale(d))
-      .attr('x2', d => xScale(d))
-      .attr('y1', 0)
-      .attr('y2', participantIds.length * rowHeight * 2)
-      .attr('stroke', '#e0e0e0')
-      .attr('stroke-dasharray', '2,2');
-
-    // Draw each participant's timeline
-    participantIds.forEach((pid, idx) => {
-      const routine = routines[pid];
-      const y = idx * rowHeight * 2 + 20;
-      
-      // Participant label
-      const participant = routine.participant;
-      const labelText = participant 
-        ? `ID ${pid} (Age: ${participant.age}, ${participant.education || 'N/A'})`
-        : `Participant ${pid}`;
-      
-      g.append('text')
-        .attr('x', -10)
-        .attr('y', y + rowHeight / 2)
-        .attr('text-anchor', 'end')
-        .attr('font-size', '12px')
-        .attr('font-weight', 'bold')
-        .text(labelText);
-
-      // Activity timeline bars
-      const timeline = routine.timeline || [];
-      const hourWidth = innerWidth / 24;
-
-      timeline.forEach((hour, hourIdx) => {
-        const activity = hour.dominant_activity;
-        const color = ACTIVITY_COLORS[activity] || ACTIVITY_COLORS['Unknown'];
-        const confidence = hour.confidence || 0;
-
-        g.append('rect')
-          .attr('x', xScale(hourIdx))
-          .attr('y', y)
-          .attr('width', hourWidth - 1)
-          .attr('height', rowHeight - 10)
-          .attr('fill', color)
-          .attr('opacity', Math.max(0.3, confidence / 100))
-          .attr('rx', 2)
-          .style('cursor', 'pointer')
-          .on('mouseover', function(event) {
-            d3.select(this).attr('stroke', '#000').attr('stroke-width', 2);
-            
-            // Show tooltip
-            const tooltip = d3.select('#routine-tooltip');
-            tooltip.style('display', 'block')
-              .style('left', `${event.pageX + 10}px`)
-              .style('top', `${event.pageY - 10}px`)
-              .html(`
-                <strong>${hourIdx}:00 - ${hourIdx + 1}:00</strong><br/>
-                Activity: ${ACTIVITY_LABELS[activity] || activity}<br/>
-                Confidence: ${confidence.toFixed(1)}%
-                ${hour.activities ? `<br/><small>Based on ${hour.activities.reduce((sum, a) => sum + a.count, 0)} observations</small>` : ''}
-              `);
-          })
-          .on('mouseout', function() {
-            d3.select(this).attr('stroke', 'none');
-            d3.select('#routine-tooltip').style('display', 'none');
-          });
+  // Controller object for D3 chart callbacks
+  const chartController = useMemo(() => ({
+    onActivityHover: (data, event) => {
+      setTooltipContent({
+        type: 'activity',
+        hour: data.hour,
+        activity: data.activity,
+        confidence: data.confidence,
+        activities: data.activities
       });
-
-      // Add checkin markers if available
-      if (routine.checkins && routine.checkins.length > 0) {
-        const checkinY = y + rowHeight;
-        
-        g.append('text')
-          .attr('x', -10)
-          .attr('y', checkinY + 10)
-          .attr('text-anchor', 'end')
-          .attr('font-size', '10px')
-          .attr('fill', '#666')
-          .text('Venue visits:');
-
-        routine.checkins.forEach(checkin => {
-          const venueColor = checkin.venue_type === 'Restaurant' ? '#E91E63' :
-                            checkin.venue_type === 'Pub' ? '#FF5722' :
-                            checkin.venue_type === 'Workplace' ? '#2196F3' : '#9E9E9E';
-          
-          g.append('circle')
-            .attr('cx', xScale(checkin.hour) + hourWidth / 2)
-            .attr('cy', checkinY + 10)
-            .attr('r', Math.min(8, Math.max(3, Math.sqrt(checkin.visit_count) * 2)))
-            .attr('fill', venueColor)
-            .attr('opacity', 0.7)
-            .style('cursor', 'pointer')
-            .on('mouseover', function(event) {
-              d3.select(this).attr('stroke', '#000').attr('stroke-width', 2);
-              d3.select('#routine-tooltip')
-                .style('display', 'block')
-                .style('left', `${event.pageX + 10}px`)
-                .style('top', `${event.pageY - 10}px`)
-                .html(`
-                  <strong>${checkin.hour}:00</strong><br/>
-                  ${checkin.venue_type}: ${checkin.visit_count} visits
-                `);
-            })
-            .on('mouseout', function() {
-              d3.select(this).attr('stroke', 'none');
-              d3.select('#routine-tooltip').style('display', 'none');
-            });
-        });
+      if (tooltipRef.current) {
+        d3.select(tooltipRef.current)
+          .style('display', 'block')
+          .style('left', `${event.pageX + 10}px`)
+          .style('top', `${event.pageY - 10}px`);
       }
+    },
+    onActivityLeave: () => {
+      setTooltipContent(null);
+      if (tooltipRef.current) {
+        d3.select(tooltipRef.current).style('display', 'none');
+      }
+    },
+    onCheckinHover: (checkin, event) => {
+      setTooltipContent({
+        type: 'checkin',
+        hour: checkin.hour,
+        venueType: checkin.venue_type,
+        visitCount: checkin.visit_count
+      });
+      if (tooltipRef.current) {
+        d3.select(tooltipRef.current)
+          .style('display', 'block')
+          .style('left', `${event.pageX + 10}px`)
+          .style('top', `${event.pageY - 10}px`);
+      }
+    },
+    onCheckinLeave: () => {
+      setTooltipContent(null);
+      if (tooltipRef.current) {
+        d3.select(tooltipRef.current).style('display', 'none');
+      }
+    },
+  }), []);
+
+  // Update chart when routine data changes (lazy initialization)
+  useEffect(() => {
+    if (!timelineRef.current || !routineData?.routines) return;
+
+    // Initialize chart if not already done
+    if (!chartRef.current) {
+      chartRef.current = new DailyRoutinesChart(timelineRef.current, chartController);
+      chartRef.current.initialize();
+    }
+
+    chartRef.current.update({
+      routines: routineData.routines
     });
+  }, [routineData, chartController]);
 
-    // Legend
-    const legend = svg.append('g')
-      .attr('transform', `translate(${margin.left}, ${height - 30})`);
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+    };
+  }, []);
 
-    Object.entries(ACTIVITY_COLORS).forEach(([activity, color], idx) => {
-      if (activity === 'Unknown') return;
-      
-      legend.append('rect')
-        .attr('x', idx * 120)
-        .attr('y', 0)
-        .attr('width', 15)
-        .attr('height', 15)
-        .attr('fill', color);
+  // Render tooltip content based on type
+  const renderTooltipContent = () => {
+    if (!tooltipContent) return null;
 
-      legend.append('text')
-        .attr('x', idx * 120 + 20)
-        .attr('y', 12)
-        .attr('font-size', '11px')
-        .text(ACTIVITY_LABELS[activity]);
-    });
+    if (tooltipContent.type === 'activity') {
+      return (
+        <>
+          <strong>{tooltipContent.hour}:00 - {tooltipContent.hour + 1}:00</strong><br />
+          Activity: {ACTIVITY_LABELS[tooltipContent.activity] || tooltipContent.activity}<br />
+          Confidence: {tooltipContent.confidence.toFixed(1)}%
+          {tooltipContent.activities && (
+            <><br /><small>Based on {tooltipContent.activities.reduce((sum, a) => sum + a.count, 0)} observations</small></>
+          )}
+        </>
+      );
+    }
 
-  }, [routineData]);
+    if (tooltipContent.type === 'checkin') {
+      return (
+        <>
+          <strong>{tooltipContent.hour}:00</strong><br />
+          {tooltipContent.venueType}: {tooltipContent.visitCount} visits
+        </>
+      );
+    }
+
+    return null;
+  };
 
   if (listLoading) {
     return (
-      <div className="visualization-container">
+      <div className="daily-routines visualization-container">
         <div className="loading">Loading participant data...</div>
       </div>
     );
   }
 
   return (
-    <div className="visualization-container">
+    <div className="daily-routines visualization-container">
       <div className="controls">
         <div className="control-group">
           <label htmlFor="participant1">Participant 1:</label>
@@ -320,7 +226,7 @@ function DailyRoutines() {
                 className="suggestion-btn"
                 onClick={() => handleSuggestedPair(pair.ids)}
               >
-                Compare #{pair.ids[0]} & #{pair.ids[1]}
+                Compare #{pair.ids[0]} &amp; #{pair.ids[1]}
                 <small>{pair.description}</small>
               </button>
             ))}
@@ -335,7 +241,9 @@ function DailyRoutines() {
       {routineData?.routines && Object.keys(routineData.routines).length > 0 && (
         <>
           <div className="timeline-container" ref={timelineRef}></div>
-          <div id="routine-tooltip" className="tooltip" style={{ display: 'none' }}></div>
+          <div ref={tooltipRef} className="tooltip" style={{ display: 'none' }}>
+            {renderTooltipContent()}
+          </div>
           
           <div className="comparison-summary">
             <h4>Routine Comparison Summary</h4>
@@ -375,6 +283,15 @@ function DailyRoutines() {
                               style={{ backgroundColor: ACTIVITY_COLORS[activity] }}
                             ></span>
                             <span className="activity-name">{ACTIVITY_LABELS[activity] || activity}</span>
+                            <div className="activity-bar-container">
+                              <div 
+                                className="activity-bar-fill"
+                                style={{ 
+                                  width: `${Math.round(hours/24*100)}%`,
+                                  backgroundColor: ACTIVITY_COLORS[activity]
+                                }}
+                              />
+                            </div>
                             <span className="activity-hours">{hours}h ({Math.round(hours/24*100)}%)</span>
                           </div>
                         ))}

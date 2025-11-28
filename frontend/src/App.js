@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import Layout from './components/Layout';
 import Sidebar from './components/Sidebar';
 import BuildingsMap from './components/visualizations/BuildingsMap';
 import { AreaCharacteristics, TrafficPatterns, DailyRoutines, TemporalPatterns } from './components/visualizations';
@@ -29,7 +28,10 @@ function App() {
     VIEWS[activeView] || VIEWS[defaultView];
 
   return (
-    <Layout title={activeLabel}>
+    <div className="App">
+      <header className="App-header">
+        <h1>VAST Challenge 2022 - {activeLabel}</h1>
+      </header>
       <div className="app-content">
         <Sidebar 
           activeView={activeView} 
@@ -40,7 +42,7 @@ function App() {
           <ActiveComponent />
         </div>
       </div>
-    </Layout>
+    </div>
   );
 }
 

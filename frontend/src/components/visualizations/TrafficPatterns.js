@@ -1,23 +1,24 @@
-import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { useApi, fetchTrafficPatterns, fetchBuildingsMapData } from '../../hooks/useApi';
+import { TrafficPatternsChart, HourlyChart } from './d3/TrafficPatternsChart';
+import './TrafficPatterns.css';
 
 const METRICS = [
-  { id: 'total_visits', label: 'Total Visits', key: 'total_visits' },
-  { id: 'unique_visitors', label: 'Unique Visitors', key: 'unique_visitors' },
-  { id: 'restaurant_visits', label: 'Restaurant Visits', key: 'restaurant_visits' },
-  { id: 'pub_visits', label: 'Pub Visits', key: 'pub_visits' },
-  { id: 'work_visits', label: 'Workplace Visits', key: 'work_visits' },
-  { id: 'home_visits', label: 'Home Visits', key: 'home_visits' },
+  { id: 'total_visits', label: 'Total Visits' },
+  { id: 'unique_visitors', label: 'Unique Visitors' },
+  { id: 'avg_duration', label: 'Avg Duration (min)' },
+  { id: 'work_visits', label: 'Work-Related Visits' },
+  { id: 'restaurant_visits', label: 'Restaurant Visits' },
+  { id: 'pub_visits', label: 'Pub Visits' },
 ];
 
 const TIME_PERIODS = [
   { id: 'all', label: 'All Day' },
-  { id: 'morning', label: 'Morning (6-10)' },
-  { id: 'midday', label: 'Midday (10-14)' },
-  { id: 'afternoon', label: 'Afternoon (14-18)' },
-  { id: 'evening', label: 'Evening (18-22)' },
-  { id: 'night', label: 'Night (22-6)' },
+  { id: 'morning', label: 'Morning (6-12)' },
+  { id: 'afternoon', label: 'Afternoon (12-18)' },
+  { id: 'evening', label: 'Evening (18-24)' },
+  { id: 'night', label: 'Night (0-6)' },
 ];
 
 const DAY_TYPES = [
@@ -26,13 +27,12 @@ const DAY_TYPES = [
   { id: 'weekend', label: 'Weekends' },
 ];
 
-const DEFAULT_GRID_SIZE = 300;
 const MIN_GRID_SIZE = 50;
 const MAX_GRID_SIZE = 1000;
 
 /**
- * Parse PostgreSQL polygon string to array of points.
- * Format: "((x1,y1),(x2,y2),...)"
+ * Parse a PostgreSQL polygon string into an array of {x, y} points.
+ * Format: ((x1,y1),(x2,y2),...)
  */
 function parsePolygon(polygonStr) {
   if (!polygonStr) return null;
@@ -50,38 +50,34 @@ function parsePolygon(polygonStr) {
 }
 
 /**
- * Compute bounds from building polygon vertices with padding.
+ * Compute bounds from building polygons with padding.
  */
-function computeBoundsFromBuildings(buildings, paddingPercent = 0.02) {
+function computeBoundsFromBuildings(buildings, paddingPercent = 0.05) {
   if (!buildings || buildings.length === 0) return null;
   
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   
-  buildings.forEach(building => {
-    const points = parsePolygon(building.location);
-    if (points) {
-      points.forEach(p => {
-        if (p.x < minX) minX = p.x;
-        if (p.x > maxX) maxX = p.x;
-        if (p.y < minY) minY = p.y;
-        if (p.y > maxY) maxY = p.y;
-      });
-    }
+  buildings.forEach(b => {
+    const pts = parsePolygon(b.location);
+    if (!pts) return;
+    pts.forEach(p => {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    });
   });
   
+  // If no valid points found, return null
   if (minX === Infinity) return null;
   
-  // Add padding
-  const width = maxX - minX;
-  const height = maxY - minY;
-  const padX = width * paddingPercent;
-  const padY = height * paddingPercent;
-  
+  const padX = (maxX - minX) * paddingPercent;
+  const padY = (maxY - minY) * paddingPercent;
   return {
     min_x: minX - padX,
     max_x: maxX + padX,
     min_y: minY - padY,
-    max_y: maxY + padY
+    max_y: maxY + padY,
   };
 }
 
@@ -89,337 +85,174 @@ function TrafficPatterns() {
   const svgRef = useRef(null);
   const hourlyChartRef = useRef(null);
   const tooltipRef = useRef(null);
+  
+  // Chart instances
+  const chartRef = useRef(null);
+  const hourlyChartInstanceRef = useRef(null);
+  
   const [selectedMetric, setSelectedMetric] = useState('total_visits');
   const [timePeriod, setTimePeriod] = useState('all');
   const [dayType, setDayType] = useState('all');
-  const [gridSize, setGridSize] = useState(DEFAULT_GRID_SIZE);
-  const [gridSizeInput, setGridSizeInput] = useState(DEFAULT_GRID_SIZE.toString());
-  const [debouncedGridSize, setDebouncedGridSize] = useState(DEFAULT_GRID_SIZE);
-  const [hoveredCell, setHoveredCell] = useState(null);
+  const [gridSize, setGridSize] = useState(100);
+  const [gridSizeInput, setGridSizeInput] = useState('100');
+  const [debouncedGridSize, setDebouncedGridSize] = useState(100);
   const [showBottlenecks, setShowBottlenecks] = useState(true);
-  
-  // Sync text input when slider changes
-  useEffect(() => {
-    setGridSizeInput(String(gridSize));
-  }, [gridSize]);
-  
-  // Debounce grid size changes - wait 400ms after user stops sliding
+  const [hoveredCell, setHoveredCell] = useState(null);
+
+  // Debounce grid size changes
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedGridSize(gridSize);
     }, 400);
     return () => clearTimeout(timer);
   }, [gridSize]);
-  
+
+  // Sync gridSizeInput with gridSize (when slider changes)
+  useEffect(() => {
+    setGridSizeInput(String(gridSize));
+  }, [gridSize]);
+
+  // Fetch data
   const { data, loading, error, refetch } = useApi(
-    fetchTrafficPatterns, 
-    { gridSize: debouncedGridSize, timePeriod, dayType }, 
+    fetchTrafficPatterns,
+    { 
+      gridSize: debouncedGridSize, 
+      timePeriod, 
+      dayType 
+    },
     true
   );
-  const { data: buildingsData } = useApi(fetchBuildingsMapData, {}, true);
 
+  // Refetch when parameters change
   useEffect(() => {
     refetch({ gridSize: debouncedGridSize, timePeriod, dayType });
   }, [debouncedGridSize, timePeriod, dayType]);
 
+  const { data: buildingsData } = useApi(fetchBuildingsMapData, {}, true);
+
   const currentMetricConfig = useMemo(() => 
-    METRICS.find(m => m.id === selectedMetric), [selectedMetric]);
+    METRICS.find(m => m.id === selectedMetric) || METRICS[0],
+    [selectedMetric]
+  );
 
+  // Process data based on selected metric
   const processedData = useMemo(() => {
-    if (!data || !data.traffic || !currentMetricConfig) return null;
-    
-    const cells = data.traffic.map(cell => ({
-      ...cell,
-      value: cell[currentMetricConfig.key],
-      isBottleneck: data.statistics && cell.total_visits > data.statistics.p90_visits
-    })).filter(cell => cell.value != null && cell.value > 0);
+    if (!data || !data.traffic) return null;
 
-    return { 
-      cells, 
-      bounds: data.bounds, 
+    const cells = data.traffic.map(cell => {
+      let value;
+      switch (selectedMetric) {
+        case 'total_visits': value = cell.total_visits; break;
+        case 'unique_visitors': value = cell.unique_visitors; break;
+        case 'avg_duration': value = cell.avg_duration || 0; break;
+        case 'work_visits': value = cell.work_visits; break;
+        case 'restaurant_visits': value = cell.restaurant_visits; break;
+        case 'pub_visits': value = cell.pub_visits; break;
+        default: value = cell.total_visits;
+      }
+      
+      const isBottleneck = data.statistics && 
+        cell.total_visits >= data.statistics.p90_visits;
+      
+      return { ...cell, value, isBottleneck };
+    });
+
+    return {
+      cells,
+      bounds: data.bounds,
       statistics: data.statistics,
       hourlyPattern: data.hourly_pattern,
-      flows: data.flows 
     };
-  }, [data, currentMetricConfig]);
+  }, [data, selectedMetric]);
 
-  // Main heatmap
-  useEffect(() => {
-    if (!processedData || !svgRef.current) return;
-
-    const { cells, statistics } = processedData;
-    
-    // Compute bounds from building polygon vertices with padding
-    const bounds = buildingsData?.buildings 
-      ? computeBoundsFromBuildings(buildingsData.buildings)
-      : processedData.bounds;
-    
-    if (!bounds) return;
-    
-    const container = svgRef.current.parentElement;
-    const width = container.clientWidth;
-    
-    const dataWidth = bounds.max_x - bounds.min_x;
-    const dataHeight = bounds.max_y - bounds.min_y;
-    const dataAspectRatio = dataWidth / dataHeight;
-    
-    const margin = { top: 20, right: 120, bottom: 40, left: 60 };
-    const innerWidth = width - margin.left - margin.right;
-    const innerHeight = innerWidth / dataAspectRatio;
-    const height = innerHeight + margin.top + margin.bottom;
-
-    d3.select(svgRef.current).selectAll('*').remove();
-
-    const svg = d3.select(svgRef.current)
-      .attr('width', width)
-      .attr('height', height);
-
-    const g = svg.append('g')
-      .attr('transform', `translate(${margin.left},${margin.top})`);
-
-    const xScale = d3.scaleLinear()
-      .domain([bounds.min_x, bounds.max_x])
-      .range([0, innerWidth]);
-
-    const yScale = d3.scaleLinear()
-      .domain([bounds.min_y, bounds.max_y])
-      .range([innerHeight, 0]);
-
-    // Clipping path
-    svg.append('defs')
-      .append('clipPath')
-      .attr('id', 'traffic-clip')
-      .append('rect')
-      .attr('x', 0)
-      .attr('y', 0)
-      .attr('width', innerWidth)
-      .attr('height', innerHeight);
-
-    // Draw building polygons as background
-    if (buildingsData?.buildings) {
-      const lineGenerator = d3.line()
-        .x(d => xScale(d.x))
-        .y(d => yScale(d.y))
-        .curve(d3.curveLinearClosed);
-
-      const buildingsWithPaths = buildingsData.buildings
-        .map(b => ({ ...b, points: parsePolygon(b.location) }))
-        .filter(b => b.points && b.points.length >= 3);
-
-      g.append('g')
-        .attr('class', 'buildings-layer')
-        .attr('clip-path', 'url(#traffic-clip)')
-        .selectAll('path.building')
-        .data(buildingsWithPaths)
-        .enter()
-        .append('path')
-        .attr('class', 'building')
-        .attr('d', d => lineGenerator(d.points))
-        .attr('fill', d => {
-          switch (d.buildingtype) {
-            case 'Commercial': return 'rgba(52, 152, 219, 0.3)';
-            case 'Residential':
-            case 'Residental': return 'rgba(46, 204, 113, 0.3)';
-            case 'School': return 'rgba(155, 89, 182, 0.3)';
-            default: return 'rgba(100, 100, 100, 0.3)';
-          }
-        })
-        .attr('stroke', '#333')
-        .attr('stroke-width', 0.5)
-        .attr('opacity', 0.6);
-    }
-
-    const values = cells.map(c => c.value);
-    const colorScale = d3.scaleSequential(d3.interpolateYlOrRd)
-      .domain([0, d3.max(values)]);
-
-    const cellWidth = Math.abs(xScale(debouncedGridSize) - xScale(0));
-    const cellHeight = Math.abs(yScale(0) - yScale(debouncedGridSize));
-
-    const cellsGroup = g.append('g')
-      .attr('clip-path', 'url(#traffic-clip)');
-
-    // Draw cells
-    cellsGroup.selectAll('rect.cell')
-      .data(cells)
-      .enter()
-      .append('rect')
-      .attr('class', 'cell')
-      .attr('x', d => xScale(d.grid_x * debouncedGridSize))
-      .attr('y', d => yScale((d.grid_y + 1) * debouncedGridSize))
-      .attr('width', cellWidth)
-      .attr('height', cellHeight)
-      .attr('fill', d => colorScale(d.value))
-      .attr('opacity', 0.7)
-      .attr('stroke', d => (showBottlenecks && d.isBottleneck) ? '#ff0000' : '#fff')
-      .attr('stroke-width', d => (showBottlenecks && d.isBottleneck) ? 2 : 0.5)
-      .style('cursor', 'pointer')
-      .on('mouseover', (event, d) => {
-        setHoveredCell(d);
-        d3.select(event.target).attr('stroke', '#000').attr('stroke-width', 2);
-        
+  // Controller object for D3 chart callbacks
+  const chartController = useMemo(() => ({
+    onCellHover: (cellData, event) => {
+      setHoveredCell(cellData);
+      if (tooltipRef.current) {
         d3.select(tooltipRef.current)
           .style('display', 'block')
           .style('left', `${event.clientX + 10}px`)
           .style('top', `${event.clientY - 10}px`);
-      })
-      .on('mousemove', (event) => {
+      }
+    },
+    onCellLeave: () => {
+      setHoveredCell(null);
+      if (tooltipRef.current) {
+        d3.select(tooltipRef.current).style('display', 'none');
+      }
+    },
+    onMouseMove: (event) => {
+      if (tooltipRef.current) {
         d3.select(tooltipRef.current)
           .style('left', `${event.clientX + 10}px`)
           .style('top', `${event.clientY - 10}px`);
-      })
-      .on('mouseout', (event, d) => {
-        setHoveredCell(null);
-        d3.select(event.target)
-          .attr('stroke', (showBottlenecks && d.isBottleneck) ? '#ff0000' : '#fff')
-          .attr('stroke-width', (showBottlenecks && d.isBottleneck) ? 2 : 0.5);
-        d3.select(tooltipRef.current).style('display', 'none');
-      });
+      }
+    },
+    getTooltipRef: () => tooltipRef.current,
+  }), []);
 
-    // Highlight bottleneck areas with markers
-    if (showBottlenecks && statistics) {
-      const bottlenecks = cells.filter(c => c.isBottleneck);
-      cellsGroup.selectAll('circle.bottleneck-marker')
-        .data(bottlenecks)
-        .enter()
-        .append('circle')
-        .attr('class', 'bottleneck-marker')
-        .attr('cx', d => xScale(d.grid_x * debouncedGridSize + debouncedGridSize / 2))
-        .attr('cy', d => yScale(d.grid_y * debouncedGridSize + debouncedGridSize / 2))
-        .attr('r', 8)
-        .attr('fill', 'none')
-        .attr('stroke', '#ff0000')
-        .attr('stroke-width', 2)
-        .attr('stroke-dasharray', '4,2');
-    }
-
-    // Axes
-    g.append('g')
-      .attr('transform', `translate(0,${innerHeight})`)
-      .call(d3.axisBottom(xScale).ticks(5))
-      .append('text')
-      .attr('x', innerWidth / 2)
-      .attr('y', 35)
-      .attr('fill', '#000')
-      .attr('text-anchor', 'middle')
-      .text('X Coordinate');
-
-    g.append('g')
-      .call(d3.axisLeft(yScale).ticks(5))
-      .append('text')
-      .attr('transform', 'rotate(-90)')
-      .attr('y', -45)
-      .attr('x', -innerHeight / 2)
-      .attr('fill', '#000')
-      .attr('text-anchor', 'middle')
-      .text('Y Coordinate');
-
-    // Color legend
-    const legendWidth = 20;
-    const legendHeight = innerHeight;
-    const legendScale = d3.scaleLinear()
-      .domain(colorScale.domain())
-      .range([legendHeight, 0]);
-
-    const legend = svg.append('g')
-      .attr('transform', `translate(${width - margin.right + 20},${margin.top})`);
-
-    const defs = svg.append('defs');
-    const gradient = defs.append('linearGradient')
-      .attr('id', 'traffic-gradient')
-      .attr('x1', '0%').attr('y1', '100%')
-      .attr('x2', '0%').attr('y2', '0%');
-
-    gradient.selectAll('stop')
-      .data(d3.range(0, 1.01, 0.1))
-      .enter()
-      .append('stop')
-      .attr('offset', d => `${d * 100}%`)
-      .attr('stop-color', d => colorScale(d * d3.max(values)));
-
-    legend.append('rect')
-      .attr('width', legendWidth)
-      .attr('height', legendHeight)
-      .style('fill', 'url(#traffic-gradient)');
-
-    legend.append('g')
-      .attr('transform', `translate(${legendWidth},0)`)
-      .call(d3.axisRight(legendScale).ticks(5));
-
-    legend.append('text')
-      .attr('transform', 'rotate(-90)')
-      .attr('y', -5)
-      .attr('x', -legendHeight / 2)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', '12px')
-      .text(currentMetricConfig.label);
-
-  }, [processedData, debouncedGridSize, currentMetricConfig, showBottlenecks, buildingsData]);
-
-  // Hourly distribution chart
+  // Update chart when data changes (lazy initialization)
   useEffect(() => {
-    if (!processedData?.hourlyPattern || !hourlyChartRef.current) return;
+    if (!svgRef.current || !processedData?.cells || !buildingsData?.buildings || !data) return;
+    
+    // Skip if data is stale (grid_size doesn't match current debouncedGridSize)
+    // This prevents rendering old data with new grid size during loading
+    if (data.grid_size !== debouncedGridSize) return;
 
-    const hourlyData = processedData.hourlyPattern;
-    const container = hourlyChartRef.current;
-    const width = container.clientWidth;
-    const height = 150;
-    const margin = { top: 20, right: 20, bottom: 30, left: 50 };
+    // Compute bounds from buildings
+    const bounds = computeBoundsFromBuildings(buildingsData.buildings);
+    if (!bounds) return; // Can't render without valid bounds
 
-    d3.select(container).selectAll('*').remove();
+    // Always create a fresh chart instance (handles remount after loading)
+    if (chartRef.current) {
+      chartRef.current.destroy();
+    }
+    chartRef.current = new TrafficPatternsChart(svgRef.current, chartController);
+    chartRef.current.initialize();
 
-    const svg = d3.select(container)
-      .append('svg')
-      .attr('width', width)
-      .attr('height', height);
+    const { cells, statistics } = processedData;
 
-    const g = svg.append('g')
-      .attr('transform', `translate(${margin.left},${margin.top})`);
+    chartRef.current.update({
+      cells,
+      bounds,
+      gridSize: data.grid_size,
+      metricConfig: currentMetricConfig,
+      showBottlenecks,
+      statistics,
+      buildingsData,
+    });
+  }, [processedData, debouncedGridSize, currentMetricConfig, showBottlenecks, buildingsData, chartController, data]);
 
-    const innerWidth = width - margin.left - margin.right;
-    const innerHeight = height - margin.top - margin.bottom;
+  // Update hourly chart when data changes (lazy initialization)
+  useEffect(() => {
+    if (!hourlyChartRef.current || !processedData?.hourlyPattern) return;
 
-    const xScale = d3.scaleBand()
-      .domain(hourlyData.map(d => d.hour))
-      .range([0, innerWidth])
-      .padding(0.1);
+    // Always create a fresh chart instance (handles remount after loading)
+    if (hourlyChartInstanceRef.current) {
+      hourlyChartInstanceRef.current.destroy();
+    }
+    hourlyChartInstanceRef.current = new HourlyChart(hourlyChartRef.current);
+    hourlyChartInstanceRef.current.initialize();
 
-    const yScale = d3.scaleLinear()
-      .domain([0, d3.max(hourlyData, d => d.visits)])
-      .range([innerHeight, 0]);
-
-    // Bars
-    g.selectAll('rect')
-      .data(hourlyData)
-      .enter()
-      .append('rect')
-      .attr('x', d => xScale(d.hour))
-      .attr('y', d => yScale(d.visits))
-      .attr('width', xScale.bandwidth())
-      .attr('height', d => innerHeight - yScale(d.visits))
-      .attr('fill', d => {
-        // Highlight peak hours
-        if (d.visits > d3.max(hourlyData, h => h.visits) * 0.8) return '#d62728';
-        if (d.visits > d3.max(hourlyData, h => h.visits) * 0.6) return '#ff7f0e';
-        return '#1f77b4';
-      });
-
-    // Axes
-    g.append('g')
-      .attr('transform', `translate(0,${innerHeight})`)
-      .call(d3.axisBottom(xScale).tickValues([0, 6, 12, 18, 23]))
-      .append('text')
-      .attr('x', innerWidth / 2)
-      .attr('y', 25)
-      .attr('fill', '#000')
-      .attr('text-anchor', 'middle')
-      .attr('font-size', '10px')
-      .text('Hour of Day');
-
-    g.append('g')
-      .call(d3.axisLeft(yScale).ticks(4).tickFormat(d3.format('.2s')));
-
+    hourlyChartInstanceRef.current.update({
+      hourlyData: processedData.hourlyPattern,
+    });
   }, [processedData]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+      if (hourlyChartInstanceRef.current) {
+        hourlyChartInstanceRef.current.destroy();
+        hourlyChartInstanceRef.current = null;
+      }
+    };
+  }, []);
 
   const formatValue = (value) => {
     if (value == null) return 'N/A';
@@ -428,7 +261,7 @@ function TrafficPatterns() {
 
   if (loading) {
     return (
-      <div className="visualization-container">
+      <div className="traffic-patterns visualization-container">
         <div className="loading">Loading traffic patterns...</div>
       </div>
     );
@@ -436,14 +269,14 @@ function TrafficPatterns() {
 
   if (error) {
     return (
-      <div className="visualization-container">
+      <div className="traffic-patterns visualization-container">
         <div className="error">Error: {error}</div>
       </div>
     );
   }
 
   return (
-    <div className="visualization-container">
+    <div className="traffic-patterns visualization-container">
       <div className="controls">
         <div className="control-group">
           <label htmlFor="metric-select">Metric:</label>
