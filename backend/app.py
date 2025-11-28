@@ -878,13 +878,16 @@ def buildings_map():
     try:
         results = {}
 
-        # Get city bounds from apartments (covers the same area as buildings)
+        # Get city bounds from building polygons (using bounding box of all buildings)
         t0 = time.time()
         cur.execute("""
+            WITH building_boxes AS (
+                SELECT box(location) as bbox FROM buildings WHERE location IS NOT NULL
+            )
             SELECT 
-                MIN(location[0]) as min_x, MAX(location[0]) as max_x,
-                MIN(location[1]) as min_y, MAX(location[1]) as max_y
-            FROM apartments
+                MIN((bbox[0])[0]) as min_x, MAX((bbox[1])[0]) as max_x,
+                MIN((bbox[0])[1]) as min_y, MAX((bbox[1])[1]) as max_y
+            FROM building_boxes
         """)
         bounds = cur.fetchone()
         

@@ -25,11 +25,11 @@ function BuildingsMap() {
 
   // State - which venue layers are visible
   const [visibleLayers, setVisibleLayers] = useState({
-    apartments: false,
-    employers: false,
-    pubs: false,
-    restaurants: false,
-    schools: false,
+    apartments: true  ,
+    employers: true ,
+    pubs: true  ,
+    restaurants: true ,
+    schools: true ,
   });
 
   const [hoveredItem, setHoveredItem] = useState(null);

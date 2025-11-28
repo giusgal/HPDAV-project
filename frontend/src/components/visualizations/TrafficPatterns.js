@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
-import { useApi, fetchTrafficPatterns } from '../../hooks/useApi';
+import { useApi, fetchTrafficPatterns, fetchBuildingsMapData } from '../../hooks/useApi';
 
 const METRICS = [
   { id: 'total_visits', label: 'Total Visits', key: 'total_visits' },
@@ -26,7 +26,64 @@ const DAY_TYPES = [
   { id: 'weekend', label: 'Weekends' },
 ];
 
-const GRID_SIZES = [250, 500, 750, 1000];
+const DEFAULT_GRID_SIZE = 300;
+const MIN_GRID_SIZE = 50;
+const MAX_GRID_SIZE = 1000;
+
+/**
+ * Parse PostgreSQL polygon string to array of points.
+ * Format: "((x1,y1),(x2,y2),...)"
+ */
+function parsePolygon(polygonStr) {
+  if (!polygonStr) return null;
+  try {
+    const cleaned = polygonStr.replace(/^\(\(/, '').replace(/\)\)$/, '');
+    const pointStrings = cleaned.split('),(');
+    return pointStrings.map(pointStr => {
+      const [x, y] = pointStr.replace(/[()]/g, '').split(',').map(Number);
+      return { x, y };
+    });
+  } catch (e) {
+    console.warn('Failed to parse polygon:', polygonStr, e);
+    return null;
+  }
+}
+
+/**
+ * Compute bounds from building polygon vertices with padding.
+ */
+function computeBoundsFromBuildings(buildings, paddingPercent = 0.02) {
+  if (!buildings || buildings.length === 0) return null;
+  
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  
+  buildings.forEach(building => {
+    const points = parsePolygon(building.location);
+    if (points) {
+      points.forEach(p => {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      });
+    }
+  });
+  
+  if (minX === Infinity) return null;
+  
+  // Add padding
+  const width = maxX - minX;
+  const height = maxY - minY;
+  const padX = width * paddingPercent;
+  const padY = height * paddingPercent;
+  
+  return {
+    min_x: minX - padX,
+    max_x: maxX + padX,
+    min_y: minY - padY,
+    max_y: maxY + padY
+  };
+}
 
 function TrafficPatterns() {
   const svgRef = useRef(null);
@@ -35,19 +92,35 @@ function TrafficPatterns() {
   const [selectedMetric, setSelectedMetric] = useState('total_visits');
   const [timePeriod, setTimePeriod] = useState('all');
   const [dayType, setDayType] = useState('all');
-  const [gridSize, setGridSize] = useState(500);
+  const [gridSize, setGridSize] = useState(DEFAULT_GRID_SIZE);
+  const [gridSizeInput, setGridSizeInput] = useState(DEFAULT_GRID_SIZE.toString());
+  const [debouncedGridSize, setDebouncedGridSize] = useState(DEFAULT_GRID_SIZE);
   const [hoveredCell, setHoveredCell] = useState(null);
   const [showBottlenecks, setShowBottlenecks] = useState(true);
   
+  // Sync text input when slider changes
+  useEffect(() => {
+    setGridSizeInput(String(gridSize));
+  }, [gridSize]);
+  
+  // Debounce grid size changes - wait 400ms after user stops sliding
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedGridSize(gridSize);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [gridSize]);
+  
   const { data, loading, error, refetch } = useApi(
     fetchTrafficPatterns, 
-    { gridSize, timePeriod, dayType }, 
+    { gridSize: debouncedGridSize, timePeriod, dayType }, 
     true
   );
+  const { data: buildingsData } = useApi(fetchBuildingsMapData, {}, true);
 
   useEffect(() => {
-    refetch({ gridSize, timePeriod, dayType });
-  }, [gridSize, timePeriod, dayType]);
+    refetch({ gridSize: debouncedGridSize, timePeriod, dayType });
+  }, [debouncedGridSize, timePeriod, dayType]);
 
   const currentMetricConfig = useMemo(() => 
     METRICS.find(m => m.id === selectedMetric), [selectedMetric]);
@@ -74,7 +147,15 @@ function TrafficPatterns() {
   useEffect(() => {
     if (!processedData || !svgRef.current) return;
 
-    const { cells, bounds, statistics } = processedData;
+    const { cells, statistics } = processedData;
+    
+    // Compute bounds from building polygon vertices with padding
+    const bounds = buildingsData?.buildings 
+      ? computeBoundsFromBuildings(buildingsData.buildings)
+      : processedData.bounds;
+    
+    if (!bounds) return;
+    
     const container = svgRef.current.parentElement;
     const width = container.clientWidth;
     
@@ -114,22 +195,46 @@ function TrafficPatterns() {
       .attr('width', innerWidth)
       .attr('height', innerHeight);
 
-    // Basemap
-    g.append('image')
-      .attr('href', `${process.env.PUBLIC_URL}/BaseMap.png`)
-      .attr('x', 0)
-      .attr('y', 0)
-      .attr('width', innerWidth)
-      .attr('height', innerHeight)
-      .attr('opacity', 0.4)
-      .attr('preserveAspectRatio', 'none');
+    // Draw building polygons as background
+    if (buildingsData?.buildings) {
+      const lineGenerator = d3.line()
+        .x(d => xScale(d.x))
+        .y(d => yScale(d.y))
+        .curve(d3.curveLinearClosed);
+
+      const buildingsWithPaths = buildingsData.buildings
+        .map(b => ({ ...b, points: parsePolygon(b.location) }))
+        .filter(b => b.points && b.points.length >= 3);
+
+      g.append('g')
+        .attr('class', 'buildings-layer')
+        .attr('clip-path', 'url(#traffic-clip)')
+        .selectAll('path.building')
+        .data(buildingsWithPaths)
+        .enter()
+        .append('path')
+        .attr('class', 'building')
+        .attr('d', d => lineGenerator(d.points))
+        .attr('fill', d => {
+          switch (d.buildingtype) {
+            case 'Commercial': return 'rgba(52, 152, 219, 0.3)';
+            case 'Residential':
+            case 'Residental': return 'rgba(46, 204, 113, 0.3)';
+            case 'School': return 'rgba(155, 89, 182, 0.3)';
+            default: return 'rgba(100, 100, 100, 0.3)';
+          }
+        })
+        .attr('stroke', '#333')
+        .attr('stroke-width', 0.5)
+        .attr('opacity', 0.6);
+    }
 
     const values = cells.map(c => c.value);
     const colorScale = d3.scaleSequential(d3.interpolateYlOrRd)
       .domain([0, d3.max(values)]);
 
-    const cellWidth = Math.abs(xScale(gridSize) - xScale(0));
-    const cellHeight = Math.abs(yScale(0) - yScale(gridSize));
+    const cellWidth = Math.abs(xScale(debouncedGridSize) - xScale(0));
+    const cellHeight = Math.abs(yScale(0) - yScale(debouncedGridSize));
 
     const cellsGroup = g.append('g')
       .attr('clip-path', 'url(#traffic-clip)');
@@ -140,8 +245,8 @@ function TrafficPatterns() {
       .enter()
       .append('rect')
       .attr('class', 'cell')
-      .attr('x', d => xScale(d.grid_x * gridSize))
-      .attr('y', d => yScale((d.grid_y + 1) * gridSize))
+      .attr('x', d => xScale(d.grid_x * debouncedGridSize))
+      .attr('y', d => yScale((d.grid_y + 1) * debouncedGridSize))
       .attr('width', cellWidth)
       .attr('height', cellHeight)
       .attr('fill', d => colorScale(d.value))
@@ -179,8 +284,8 @@ function TrafficPatterns() {
         .enter()
         .append('circle')
         .attr('class', 'bottleneck-marker')
-        .attr('cx', d => xScale(d.grid_x * gridSize + gridSize / 2))
-        .attr('cy', d => yScale(d.grid_y * gridSize + gridSize / 2))
+        .attr('cx', d => xScale(d.grid_x * debouncedGridSize + debouncedGridSize / 2))
+        .attr('cy', d => yScale(d.grid_y * debouncedGridSize + debouncedGridSize / 2))
         .attr('r', 8)
         .attr('fill', 'none')
         .attr('stroke', '#ff0000')
@@ -249,7 +354,7 @@ function TrafficPatterns() {
       .attr('font-size', '12px')
       .text(currentMetricConfig.label);
 
-  }, [processedData, gridSize, currentMetricConfig, showBottlenecks]);
+  }, [processedData, debouncedGridSize, currentMetricConfig, showBottlenecks, buildingsData]);
 
   // Hourly distribution chart
   useEffect(() => {
@@ -377,16 +482,40 @@ function TrafficPatterns() {
           </select>
         </div>
         <div className="control-group">
-          <label htmlFor="grid-select">Grid Size:</label>
-          <select 
-            id="grid-select"
-            value={gridSize} 
+          <label htmlFor="grid-slider">Grid Size:</label>
+          <input
+            type="range"
+            id="grid-slider"
+            min={MIN_GRID_SIZE}
+            max={MAX_GRID_SIZE}
+            step={10}
+            value={gridSize}
             onChange={(e) => setGridSize(Number(e.target.value))}
-          >
-            {GRID_SIZES.map(size => (
-              <option key={size} value={size}>{size} units</option>
-            ))}
-          </select>
+            style={{ width: '150px' }}
+          />
+          <input
+            type="text"
+            id="grid-input"
+            value={gridSizeInput}
+            onChange={(e) => setGridSizeInput(e.target.value)}
+            onBlur={(e) => {
+              const parsed = parseInt(e.target.value, 10);
+              if (!isNaN(parsed)) {
+                const clamped = Math.max(MIN_GRID_SIZE, Math.min(MAX_GRID_SIZE, parsed));
+                setGridSize(clamped);
+                setGridSizeInput(String(clamped));
+              } else {
+                setGridSizeInput(String(gridSize));
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.target.blur();
+              }
+            }}
+            style={{ width: '60px', padding: '4px 8px', border: '1px solid #ddd', borderRadius: '4px' }}
+          />
+          <span style={{ fontSize: '12px', color: '#666' }}>units</span>
         </div>
         <div className="control-group">
           <label>

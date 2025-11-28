@@ -70,9 +70,12 @@ class BuildingsMapChart {
   update({ buildings, venues, bounds, visibleLayers }) {
     if (!buildings || !bounds) return;
   
+    // Compute bounds from building polygon vertices with padding
+    const computedBounds = this.computeBoundsFromBuildings(buildings, 0.02);
+    const effectiveBounds = computedBounds || bounds;
+    
     // Store bounds for use in renderBaseMap
-    this.bounds = bounds;
-    console.log("DEBUG: " + JSON.stringify(bounds));
+    this.bounds = effectiveBounds;
   
     // Calculate dimensions
     const containerElement = this.container.parentElement;
@@ -82,8 +85,8 @@ class BuildingsMapChart {
       containerWidth = rect?.width || 800;
     }
 
-    const dataWidth = bounds.max_x - bounds.min_x;
-    const dataHeight = bounds.max_y - bounds.min_y;
+    const dataWidth = effectiveBounds.max_x - effectiveBounds.min_x;
+    const dataHeight = effectiveBounds.max_y - effectiveBounds.min_y;
     const dataAspectRatio = dataWidth / dataHeight;
 
     const innerWidth = containerWidth - this.margin.left - this.margin.right;
@@ -104,19 +107,55 @@ class BuildingsMapChart {
 
     // Update scales
     this.scales.x = d3.scaleLinear()
-      .domain([bounds.min_x, bounds.max_x])
+      .domain([effectiveBounds.min_x, effectiveBounds.max_x])
       .range([0, innerWidth]);
 
     this.scales.y = d3.scaleLinear()
-      .domain([bounds.min_y, bounds.max_y])
+      .domain([effectiveBounds.min_y, effectiveBounds.max_y])
       .range([innerHeight, 0]);
 
     // Render layers
     this.renderClipPath(innerWidth, innerHeight);
-    this.renderBaseMap(innerWidth, innerHeight);
+    // this.renderBaseMap(innerWidth, innerHeight);
     this.renderBuildings(buildings);
     this.renderVenues(venues, visibleLayers);
     this.renderAxes(innerWidth, innerHeight);
+  }
+
+  /**
+   * Compute bounds from building polygon vertices with padding.
+   */
+  computeBoundsFromBuildings(buildings, paddingPercent = 0.02) {
+    if (!buildings || buildings.length === 0) return null;
+    
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    
+    buildings.forEach(building => {
+      const points = this.parsePolygon(building.location);
+      if (points) {
+        points.forEach(p => {
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        });
+      }
+    });
+    
+    if (minX === Infinity) return null;
+    
+    // Add padding
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const padX = width * paddingPercent;
+    const padY = height * paddingPercent;
+    
+    return {
+      min_x: minX - padX,
+      max_x: maxX + padX,
+      min_y: minY - padY,
+      max_y: maxY + padY
+    };
   }
 
   /**
@@ -139,19 +178,11 @@ class BuildingsMapChart {
 
   /**
    * Render the basemap image.
+   * The basemap should exactly fill the chart area, matching the data bounds.
+   * Since the scales map [min, max] to [0, innerWidth/Height], the image
+   * should be positioned at (0,0) and sized to (innerWidth, innerHeight)
    */
   renderBaseMap(width, height) {
-    const { x: xScale, y: yScale } = this.scales;
-  
-    // Compute exact mapped position of the basemap using data coordinates
-    const x0 = xScale(this.bounds.min_x);
-    const x1 = xScale(this.bounds.max_x);
-    const y0 = yScale(this.bounds.max_y);  // y inverted because SVG y increases downward
-    const y1 = yScale(this.bounds.min_y);
-  
-    const imgWidth = x1 - x0;
-    const imgHeight = y1 - y0;
-  
     const image = this.baseMapGroup.selectAll('image')
       .data([1]);
   
@@ -162,11 +193,11 @@ class BuildingsMapChart {
       update => update,
       exit => exit.remove()
     )
-    .attr('x', x0)
-    .attr('y', y0)
-    .attr('width', imgWidth)
-    .attr('height', imgHeight)
-    // Since we're mapping to exact coordinate corners, aspect ratio stretching is expected
+    .attr('x', 0)
+    .attr('y', 0)
+    .attr('width', width)
+    .attr('height', height)
+    // Stretch to fill exactly - the aspect ratio is already matched by the chart dimensions
     .attr('preserveAspectRatio', 'none');
   }
   
