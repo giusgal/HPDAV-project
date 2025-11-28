@@ -1,13 +1,3 @@
-/**
- * useApi.js - Unified API Hook
- * 
- * This module combines API configuration, endpoint definitions, and the React hook
- * for fetching data from the Flask backend. It provides a clean interface for
- * components to interact with the API.
- * 
- * See README.md in this folder for detailed documentation.
- */
-
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
@@ -45,6 +35,75 @@ export const fetchAreaCharacteristics = async (params = {}) => {
 };
 
 /**
+ * Fetch traffic patterns data.
+ * @param {Object} params - Query parameters
+ * @param {number} params.gridSize - Size of grid cells (default: 500)
+ * @param {string} params.timePeriod - Time period filter (default: 'all')
+ * @param {string} params.dayType - Day type filter (default: 'all')
+ * @param {string} params.metric - Metric to fetch (default: 'all')
+ * @returns {Promise<Object>} Traffic patterns data
+ */
+export const fetchTrafficPatterns = async (params = {}) => {
+  const { 
+    gridSize = 500, 
+    timePeriod = 'all', 
+    dayType = 'all',
+    metric = 'all' 
+  } = params;
+  const response = await apiClient.get('/api/traffic-patterns', {
+    params: { 
+      grid_size: gridSize, 
+      time_period: timePeriod,
+      day_type: dayType,
+      metric 
+    }
+  });
+  return response.data;
+};
+
+/**
+ * Fetch participant routines data.
+ * @param {Object} params - Query parameters
+ * @param {string} params.participantIds - Comma-separated participant IDs
+ * @param {string} params.date - Date filter (default: 'typical')
+ * @returns {Promise<Object>} Participant routines data
+ */
+export const fetchParticipantRoutines = async (params = {}) => {
+  const { participantIds = '', date = 'typical' } = params;
+  const response = await apiClient.get('/api/participant-routines', {
+    params: { 
+      participant_ids: participantIds,
+      date
+    }
+  });
+  return response.data;
+};
+
+/**
+ * Fetch temporal patterns data.
+ * @param {Object} params - Query parameters
+ * @param {string} params.granularity - Time granularity (default: 'weekly')
+ * @param {string} params.metric - Metric to fetch (default: 'all')
+ * @param {string} params.venueType - Venue type filter (default: 'all')
+ * @returns {Promise<Object>} Temporal patterns data
+ */
+export const fetchTemporalPatterns = async (params = {}) => {
+  const { 
+    granularity = 'weekly', 
+    metric = 'all',
+    venueType = 'all'
+  } = params;
+  const response = await apiClient.get('/api/temporal-patterns', {
+    params: { 
+      granularity,
+      metric,
+      venue_type: venueType
+    }
+  });
+  return response.data;
+};
+
+/**
  * Fetch map bounds (coordinate extent).
  * @returns {Promise<Object>} Bounds data { min_x, max_x, min_y, max_y }
  */
@@ -77,9 +136,10 @@ export const fetchHeatmapData = async (params = {}) => {
 
 /**
  * Fetch buildings map data including building polygons and venue locations.
+ * @param {Object} params - Query parameters (unused, for consistency with useApi)
  * @returns {Promise<Object>} Buildings and venues data
  */
-export const fetchBuildingsMapData = async () => {
+export const fetchBuildingsMapData = async (params = {}) => {
   const response = await apiClient.get('/api/buildings-map');
   return response.data;
 };
@@ -110,43 +170,34 @@ export const fetchBuildingsMapData = async () => {
  * const { data, loading, refetch } = useApi(fetchAreaCharacteristics, {}, false);
  * useEffect(() => { refetch({ gridSize: newSize }); }, [newSize]);
  */
-export function useApi(fetchFunction, initialParams = {}, autoFetch = true) {
+export function useApi(fetchFunction, params = {}, autoFetch = true) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(autoFetch);
   const [error, setError] = useState(null);
 
-  // useCallback memoizes the fetch function to prevent unnecessary re-creations.
-  // The dependency on JSON.stringify(initialParams) ensures the callback updates
-  // only when params actually change (deep comparison workaround).
   const fetch = useCallback(async (overrideParams = {}) => {
     setLoading(true);
     setError(null);
     try {
-      // Merge initial params with any override params
-      const result = await fetchFunction({ ...initialParams, ...overrideParams });
+      const result = await fetchFunction({ ...params, ...overrideParams });
       setData(result);
       return result;
     } catch (err) {
-      const errorMessage = err.response?.data?.error || err.message || 'An error occurred';
-      setError(errorMessage);
+      setError(err.message || 'An error occurred');
       return null;
     } finally {
       setLoading(false);
     }
-  }, [fetchFunction, JSON.stringify(initialParams)]);
+  }, [fetchFunction, JSON.stringify(params)]);
 
-  // useEffect runs on mount (empty deps would run once, but we include autoFetch).
-  // If autoFetch is true, fetch data immediately when component mounts.
   useEffect(() => {
     if (autoFetch) {
       fetch();
     }
-  }, [autoFetch]); // Only run on mount, not on fetch changes
+  }, []);
 
   return { data, loading, error, refetch: fetch };
 }
 
-// Export the axios instance for advanced usage if needed
+// Export the axios client for advanced usage
 export { apiClient };
-
-export default useApi;

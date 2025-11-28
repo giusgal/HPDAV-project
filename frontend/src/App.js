@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import Layout from './components/Layout';
 import Sidebar from './components/Sidebar';
-import AreaCharacteristics from './components/visualizations/AreaCharacteristics';
 import BuildingsMap from './components/visualizations/BuildingsMap';
+import { AreaCharacteristics, TrafficPatterns, DailyRoutines, TemporalPatterns } from './components/visualizations';
 import './App.css';
 
 const VIEWS = {
@@ -15,7 +16,9 @@ const VIEWS = {
     label: "Area Characteristics",
     component: AreaCharacteristics,
   },
-  // Add more views here
+  'traffic-patterns': { id: 'traffic-patterns', label: 'Traffic Patterns', component: TrafficPatterns },
+  'daily-routines': { id: 'daily-routines', label: 'Daily Routines', component: DailyRoutines },
+  'temporal-patterns': { id: 'temporal-patterns', label: 'Temporal Patterns', component: TemporalPatterns },
 };
 
 function App() {
@@ -26,21 +29,18 @@ function App() {
     VIEWS[activeView] || VIEWS[defaultView];
 
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>HPDAV Project - {activeLabel}</h1>
-      </header>
-      <div className="App-main">
-        <Sidebar
-          activeView={activeView}
+    <Layout title={activeLabel}>
+      <div className="app-content">
+        <Sidebar 
+          activeView={activeView} 
           onViewChange={setActiveView}
           views={VIEWS}
         />
-        <main className="main-content">
+        <div className="main-content">
           <ActiveComponent />
-        </main>
+        </div>
       </div>
-    </div>
+    </Layout>
   );
 }
 
