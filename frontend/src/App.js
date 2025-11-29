@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
-import { BuildingsMap, AreaCharacteristics, TrafficPatterns, DailyRoutines, TemporalPatterns } from './components';
+import { BuildingsMap, AreaCharacteristics, TrafficPatterns, DailyRoutines, TemporalPatterns, FlowMap } from './components';
 import './App.css';
 
 const VIEWS = {
@@ -17,6 +17,7 @@ const VIEWS = {
   'traffic-patterns': { id: 'traffic-patterns', label: 'Traffic Patterns', component: TrafficPatterns },
   'daily-routines': { id: 'daily-routines', label: 'Daily Routines', component: DailyRoutines },
   'temporal-patterns': { id: 'temporal-patterns', label: 'Temporal Patterns', component: TemporalPatterns },
+  'flow-map': { id: 'flow-map', label: 'Flow Map', component: FlowMap },
 };
 
 function App() {

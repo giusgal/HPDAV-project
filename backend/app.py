@@ -4,11 +4,17 @@ import psycopg2.extras
 import psycopg2.pool
 import time
 import logging
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, g
 from flask_cors import CORS
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# =============================================================
+# Configurations
+# =============================================================
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -51,6 +57,27 @@ def return_db_connection(conn):
     pool = get_connection_pool()
     pool.putconn(conn)
 
+
+@app.before_request
+def start_timer():
+    g.start_time = time.time()
+    logger.info(
+        f"===>> Incoming request: {request.method} {request.path} "
+        f"args={dict(request.args)}"
+    )
+
+
+@app.after_request
+def log_request(response):
+    if hasattr(g, "start_time"):
+        duration = time.time() - g.start_time
+        logger.info(
+            f"<<=== Completed request: {request.method} {request.path} "
+            f"Status={response.status_code} | Time={duration:.3f}s"
+        )
+    return response
+
+
 def get_participant_locations(cur):
     """
     Get participant locations efficiently using LATERAL join.
@@ -59,7 +86,11 @@ def get_participant_locations(cur):
     global _participant_locations_cache
     
     if _participant_locations_cache is not None:
+        logger.info("Using cached participant locations")
         return _participant_locations_cache
+    
+    t0 = time.time()
+    logger.info("Loading participant locations from DB...")
     
     # Use LATERAL join with LIMIT 1 - very fast with the index
     cur.execute("""
@@ -85,6 +116,7 @@ def get_participant_locations(cur):
         JOIN apartments a ON a.apartmentid = psl.apartmentid
     """)
     _participant_locations_cache = cur.fetchall()
+    logger.info(f"Participant locations loaded in {time.time() - t0:.3f}s, count = {len(_participant_locations_cache)}")
     return _participant_locations_cache
 
 
@@ -93,8 +125,11 @@ def get_venue_locations(cur):
     global _venue_locations_cache
     
     if _venue_locations_cache is not None:
+        logger.info("Using cached venue locations")
         return _venue_locations_cache
     
+    t0 = time.time()
+    logger.info("Loading venue locations from DB...")
     cur.execute("""
         SELECT restaurantid as venueid, 'Restaurant' as venuetype, location[0] as x, location[1] as y FROM restaurants
         UNION ALL
@@ -109,6 +144,7 @@ def get_venue_locations(cur):
     rows = cur.fetchall()
     # Create lookup dict: (venueid, venuetype) -> (x, y)
     _venue_locations_cache = {(r['venueid'], r['venuetype']): (r['x'], r['y']) for r in rows}
+    logger.info(f"Venue locations loaded in {time.time() - t0:.3f}s, count = {len(_venue_locations_cache)}")
     return _venue_locations_cache
 
 
@@ -118,7 +154,11 @@ def get_traffic_aggregation_sql(cur, grid_size, time_period, day_type):
     
     cache_key = (grid_size, time_period, day_type)
     if cache_key in _traffic_sql_cache:
+        logger.info(f"Using cached traffic data for key={cache_key}")
         return _traffic_sql_cache[cache_key]
+    
+    t0 = time.time()
+    logger.info(f"Querying traffic aggregation: grid_size={grid_size}, time_period={time_period}, day_type={day_type}")
     
     # Build time filter clause
     time_clause = ""
@@ -182,6 +222,7 @@ def get_traffic_aggregation_sql(cur, grid_size, time_period, day_type):
     
     cur.execute(query)
     traffic_data = [dict(row) for row in cur.fetchall()]
+    logger.info(f"Traffic aggregation completed in {time.time() - t0:.3f}s, rows = {len(traffic_data)}")
     
     # Cache the result
     _traffic_sql_cache[cache_key] = traffic_data
@@ -193,8 +234,11 @@ def get_hourly_pattern(cur):
     global _hourly_pattern_cache
     
     if _hourly_pattern_cache is not None:
+        logger.info("Using cached hourly pattern")
         return _hourly_pattern_cache
     
+    t0 = time.time()
+    logger.info("Loading hourly pattern from DB...")
     cur.execute("""
         SELECT 
             EXTRACT(HOUR FROM timestamp)::int as hour,
@@ -205,9 +249,13 @@ def get_hourly_pattern(cur):
         ORDER BY hour
     """)
     _hourly_pattern_cache = [dict(row) for row in cur.fetchall()]
+    logger.info(f"Hourly pattern loaded in {time.time() - t0:.3f}s")
     return _hourly_pattern_cache
 
 
+# =============================================================
+# API Endpoints
+# =============================================================
 @app.route('/')
 def index():
     return jsonify({"status": "ok", "message": "HPDAV API is running"})
@@ -232,6 +280,7 @@ def area_characteristics():
         results = {}
         
         # Get city bounds from apartments (fast query)
+        t0 = time.time()
         cur.execute("""
             SELECT 
                 MIN(location[0]) as min_x, MAX(location[0]) as max_x,
@@ -239,6 +288,8 @@ def area_characteristics():
             FROM apartments
         """)
         bounds = cur.fetchone()
+        logger.info(f"Bounds query time = {time.time() - t0:.3f}s")
+        
         results['bounds'] = {
             'min_x': bounds['min_x'],
             'max_x': bounds['max_x'],
@@ -253,6 +304,7 @@ def area_characteristics():
         
         if metric in ['demographics', 'all']:
             # Aggregate in Python - much faster than SQL on 113M rows
+            t0 = time.time()
             grid_data = {}
             for p in participant_data:
                 gx = int(p['x'] // grid_size)
@@ -286,8 +338,11 @@ def area_characteristics():
                     'cell_y': data['cell_y']
                 })
             results['demographics'] = sorted(demographics, key=lambda x: (x['grid_x'], x['grid_y']))
+            logger.info(f"Demographics computation time = {time.time() - t0:.3f}s, cells = {len(demographics)}")
         
         if metric in ['financial', 'all']:
+            t0 = time.time()
+            
             # Build participant to grid mapping
             participant_grid = {}
             for p in participant_data:
@@ -296,6 +351,7 @@ def area_characteristics():
                 participant_grid[p['participantid']] = (gx, gy)
             
             # Get financial data aggregated by participant (fast - only 1.8M rows)
+            q0 = time.time()
             cur.execute("""
                 SELECT 
                     participantid,
@@ -306,10 +362,12 @@ def area_characteristics():
                 FROM financialjournal
                 GROUP BY participantid
             """)
+            financial_rows = cur.fetchall()
+            logger.info(f"Financial journal DB query = {time.time() - q0:.3f}s")
             
             # Aggregate by grid
             grid_finances = {}
-            for row in cur.fetchall():
+            for row in financial_rows:
                 pid = row['participantid']
                 if pid not in participant_grid:
                     continue
@@ -334,9 +392,11 @@ def area_characteristics():
                     'avg_shelter_spending': sum(data['shelter']) / n if n > 0 else 0
                 })
             results['financial'] = sorted(financial, key=lambda x: (x['grid_x'], x['grid_y']))
+            logger.info(f"Financial aggregation time = {time.time() - t0:.3f}s, cells = {len(financial)}")
         
         if metric in ['venues', 'all']:
             # Count venues by type in each grid cell (fast - small tables)
+            t0 = time.time()
             cur.execute("""
                 WITH all_venues AS (
                     SELECT location[0] as x, location[1] as y, 'restaurant' as venue_type FROM restaurants
@@ -362,9 +422,11 @@ def area_characteristics():
                 ORDER BY grid_x, grid_y
             """, (grid_size, grid_size, grid_size, grid_size))
             results['venues'] = [dict(row) for row in cur.fetchall()]
+            logger.info(f"Venues aggregation time = {time.time() - t0:.3f}s")
         
         if metric in ['apartments', 'all']:
             # Aggregate apartment/building data by area (fast - small table)
+            t0 = time.time()
             cur.execute("""
                 SELECT 
                     FLOOR(location[0] / %s) as grid_x,
@@ -379,6 +441,7 @@ def area_characteristics():
                 ORDER BY grid_x, grid_y
             """, (grid_size, grid_size, grid_size, grid_size))
             results['apartments'] = [dict(row) for row in cur.fetchall()]
+            logger.info(f"Apartments aggregation time = {time.time() - t0:.3f}s")
         
         cur.close()
         return_db_connection(conn)
@@ -386,6 +449,7 @@ def area_characteristics():
         return jsonify(results)
     
     except Exception as e:
+        logger.error("Error in /api/area-characteristics", exc_info=e)
         cur.close()
         return_db_connection(conn)
         return jsonify({"error": str(e)}), 500
@@ -414,6 +478,7 @@ def traffic_patterns():
         results = {}
         
         # Get city bounds from apartments (fast, small table)
+        t0 = time.time()
         cur.execute("""
             SELECT 
                 MIN(location[0]) as min_x, MAX(location[0]) as max_x,
@@ -421,6 +486,8 @@ def traffic_patterns():
             FROM apartments
         """)
         bounds = cur.fetchone()
+        logger.info(f"Bounds query time = {time.time() - t0:.3f}s")
+        
         results['bounds'] = {
             'min_x': bounds['min_x'],
             'max_x': bounds['max_x'],
@@ -436,6 +503,7 @@ def traffic_patterns():
         results['traffic'] = traffic_data
         
         # Calculate statistics for bottleneck detection
+        t0 = time.time()
         if traffic_data:
             visits = [row['total_visits'] for row in traffic_data]
             results['statistics'] = {
@@ -453,6 +521,7 @@ def traffic_patterns():
             results['hourly_pattern'] = get_hourly_pattern(cur)
         
         results['flows'] = []
+        logger.info(f"Statistics computation time = {time.time() - t0:.3f}s")
         
         cur.close()
         return_db_connection(conn)
@@ -460,6 +529,7 @@ def traffic_patterns():
         return jsonify(results)
     
     except Exception as e:
+        logger.error("Error in /api/traffic-patterns", exc_info=e)
         cur.close()
         return_db_connection(conn)
         return jsonify({"error": str(e)}), 500
@@ -489,7 +559,9 @@ def participant_routines():
         results = {}
         
         # Get list of all participants with their characteristics (cached)
+        t0 = time.time()
         if _participants_cache is None:
+            logger.info("Loading participants cache from DB...")
             cur.execute("""
                 SELECT 
                     p.participantid,
@@ -503,12 +575,16 @@ def participant_routines():
                 ORDER BY p.participantid
             """)
             _participants_cache = [dict(row) for row in cur.fetchall()]
+            logger.info(f"Participants cache loaded in {time.time() - t0:.3f}s, count = {len(_participants_cache)}")
+        else:
+            logger.info("Using cached participants list")
         
         results['participants'] = _participants_cache
         
         # If no specific participants requested, return basic list for selection
         if not participant_ids_str:
             # Return summary based on checkinjournal (much faster than participantstatuslogs)
+            t0 = time.time()
             cur.execute("""
                 WITH participant_checkins AS (
                     SELECT 
@@ -533,6 +609,7 @@ def participant_routines():
                 ORDER BY participantid
             """)
             results['routine_summaries'] = [dict(row) for row in cur.fetchall()]
+            logger.info(f"Routine summaries query time = {time.time() - t0:.3f}s")
             cur.close()
             return_db_connection(conn)
             return jsonify(results)
@@ -551,6 +628,7 @@ def participant_routines():
             return jsonify({"error": "Please provide 1 or 2 participant IDs"}), 400
         
         # Get detailed routine data for selected participants
+        t0 = time.time()
         routines = {}
         
         for pid in participant_ids:
@@ -655,6 +733,7 @@ def participant_routines():
         
         results['routines'] = routines
         results['selected_ids'] = participant_ids
+        logger.info(f"Participant routines query time = {time.time() - t0:.3f}s for {len(participant_ids)} participants")
         
         cur.close()
         return_db_connection(conn)
@@ -662,6 +741,7 @@ def participant_routines():
         return jsonify(results)
     
     except Exception as e:
+        logger.error("Error in /api/participant-routines", exc_info=e)
         cur.close()
         return_db_connection(conn)
         return jsonify({"error": str(e)}), 500
@@ -688,6 +768,7 @@ def temporal_patterns():
     
     cache_key = (granularity, metric, venue_type)
     if cache_key in _temporal_patterns_cache:
+        logger.info(f"Using cached temporal patterns for key={cache_key}")
         return jsonify(_temporal_patterns_cache[cache_key])
     
     conn = get_db_connection()
@@ -712,11 +793,14 @@ def temporal_patterns():
             date_trunc_fin = "DATE_TRUNC('week', timestamp)"
         
         # Get date range from checkinjournal
+        t0 = time.time()
         cur.execute("""
             SELECT MIN(timestamp)::date as min_date, MAX(timestamp)::date as max_date
             FROM checkinjournal
         """)
         date_range = cur.fetchone()
+        logger.info(f"Date range query time = {time.time() - t0:.3f}s")
+        
         results['date_range'] = {
             'start': str(date_range['min_date']),
             'end': str(date_range['max_date'])
@@ -724,6 +808,7 @@ def temporal_patterns():
         
         # Activity patterns over time
         if metric in ['activity', 'all']:
+            t0 = time.time()
             venue_filter = ""
             if venue_type != 'all':
                 venue_filter = f"WHERE venuetype = '{venue_type}'"
@@ -748,6 +833,7 @@ def temporal_patterns():
                 ORDER BY period
             """)
             activity_data = cur.fetchall()
+            logger.info(f"Activity patterns query time = {time.time() - t0:.3f}s, periods = {len(activity_data)}")
             results['activity'] = [
                 {
                     'period': str(row['period'].date()) if hasattr(row['period'], 'date') else str(row['period']),
@@ -768,6 +854,7 @@ def temporal_patterns():
         
         # Spending patterns over time
         if metric in ['spending', 'all']:
+            t0 = time.time()
             cur.execute(f"""
                 SELECT 
                     {date_trunc_fin} as period,
@@ -785,6 +872,7 @@ def temporal_patterns():
                 ORDER BY period
             """)
             spending_data = cur.fetchall()
+            logger.info(f"Spending patterns query time = {time.time() - t0:.3f}s, periods = {len(spending_data)}")
             results['spending'] = [
                 {
                     'period': str(row['period'].date()) if hasattr(row['period'], 'date') else str(row['period']),
@@ -803,6 +891,7 @@ def temporal_patterns():
         
         # Social network changes over time
         if metric in ['social', 'all']:
+            t0 = time.time()
             cur.execute(f"""
                 SELECT 
                     {date_trunc} as period,
@@ -815,6 +904,7 @@ def temporal_patterns():
                 ORDER BY period
             """)
             social_data = cur.fetchall()
+            logger.info(f"Social patterns query time = {time.time() - t0:.3f}s, periods = {len(social_data)}")
             results['social'] = [
                 {
                     'period': str(row['period'].date()) if hasattr(row['period'], 'date') else str(row['period']),
@@ -854,12 +944,10 @@ def temporal_patterns():
         return jsonify(results)
     
     except Exception as e:
+        logger.error("Error in /api/temporal-patterns", exc_info=e)
         cur.close()
         return_db_connection(conn)
         return jsonify({"error": str(e)}), 500
-
-
-        conn.close()
 
 
 # =============================================================
@@ -998,5 +1086,318 @@ def buildings_map():
         return jsonify({"error": str(e)}), 500
 
 
+# Cache for flow map data
+_flow_map_cache = {}
+
+@app.route('/api/flow-map')
+def flow_map():
+    """
+    Endpoint for animated flow map visualization showing OD (Origin-Destination) patterns.
+    
+    This endpoint:
+    1. Joins traveljournal with participantstatuslogs to get coordinates
+    2. Bins coordinates into grid cells
+    3. Aggregates flows by hour and OD pairs
+    4. Returns data for Bezier arc visualization
+    
+    Parameters:
+    - grid_size: Size of grid cells for spatial binning (default: 300)
+    - day_type: 'all', 'weekday', 'weekend' (default: 'all')
+    - purpose: 'all', 'Work/Home Commute', 'Eating', 'Recreation (Social Gathering)', etc. (default: 'all')
+    - min_trips: Minimum trips to show a flow (default: 5)
+    """
+    global _flow_map_cache
+    
+    grid_size = request.args.get('grid_size', 300, type=int)
+    day_type = request.args.get('day_type', 'all', type=str)
+    purpose = request.args.get('purpose', 'all', type=str)
+    min_trips = request.args.get('min_trips', 5, type=int)
+    
+    cache_key = (grid_size, day_type, purpose, min_trips)
+    if cache_key in _flow_map_cache:
+        logger.info(f"Using cached flow map data for key={cache_key}")
+        return jsonify(_flow_map_cache[cache_key])
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    try:
+        results = {
+            'grid_size': grid_size,
+            'day_type': day_type,
+            'purpose': purpose,
+            'min_trips': min_trips
+        }
+        
+        # Get city bounds from buildings
+        t0 = time.time()
+        cur.execute("""
+            SELECT 
+                MIN(location[0]) as min_x, MAX(location[0]) as max_x,
+                MIN(location[1]) as min_y, MAX(location[1]) as max_y
+            FROM apartments
+        """)
+        bounds = cur.fetchone()
+        logger.info(f"Bounds query time = {time.time() - t0:.3f}s")
+        
+        results['bounds'] = {
+            'min_x': bounds['min_x'],
+            'max_x': bounds['max_x'],
+            'min_y': bounds['min_y'],
+            'max_y': bounds['max_y']
+        }
+        
+        # Build day filter
+        day_clause = ""
+        if day_type == 'weekday':
+            day_clause = "AND EXTRACT(DOW FROM t.travelstarttime) BETWEEN 1 AND 5"
+        elif day_type == 'weekend':
+            day_clause = "AND EXTRACT(DOW FROM t.travelstarttime) IN (0, 6)"
+        
+        # Build purpose filter
+        purpose_clause = ""
+        if purpose != 'all':
+            purpose_clause = f"AND t.purpose = '{purpose}'"
+        
+        # Main query: Join traveljournal with participantstatuslogs to get coordinates
+        # For each trip, find the status log closest to travel start/end time
+        query = f"""
+            WITH trip_coords AS (
+                SELECT 
+                    t.travelid,
+                    t.participantid,
+                    t.travelstarttime,
+                    t.travelendtime,
+                    t.purpose::text as purpose,
+                    EXTRACT(HOUR FROM t.travelstarttime)::int as hour_bucket,
+                    EXTRACT(DOW FROM t.travelstarttime)::int as day_of_week,
+                    -- Get start location from status log just before/at travel start
+                    (SELECT psl.currentlocation[0] 
+                     FROM participantstatuslogs psl 
+                     WHERE psl.participantid = t.participantid 
+                       AND psl.timestamp <= t.travelstarttime
+                       AND psl.currentlocation IS NOT NULL
+                     ORDER BY psl.timestamp DESC 
+                     LIMIT 1) as start_x,
+                    (SELECT psl.currentlocation[1] 
+                     FROM participantstatuslogs psl 
+                     WHERE psl.participantid = t.participantid 
+                       AND psl.timestamp <= t.travelstarttime
+                       AND psl.currentlocation IS NOT NULL
+                     ORDER BY psl.timestamp DESC 
+                     LIMIT 1) as start_y,
+                    -- Get end location from status log just after/at travel end
+                    (SELECT psl.currentlocation[0] 
+                     FROM participantstatuslogs psl 
+                     WHERE psl.participantid = t.participantid 
+                       AND psl.timestamp >= t.travelendtime
+                       AND psl.currentlocation IS NOT NULL
+                     ORDER BY psl.timestamp ASC 
+                     LIMIT 1) as end_x,
+                    (SELECT psl.currentlocation[1] 
+                     FROM participantstatuslogs psl 
+                     WHERE psl.participantid = t.participantid 
+                       AND psl.timestamp >= t.travelendtime
+                       AND psl.currentlocation IS NOT NULL
+                     ORDER BY psl.timestamp ASC 
+                     LIMIT 1) as end_y
+                FROM traveljournal t
+                WHERE 1=1 {day_clause} {purpose_clause}
+            ),
+            gridded_trips AS (
+                SELECT 
+                    hour_bucket,
+                    purpose,
+                    FLOOR(start_x / {grid_size})::int as start_cell_x,
+                    FLOOR(start_y / {grid_size})::int as start_cell_y,
+                    FLOOR(end_x / {grid_size})::int as end_cell_x,
+                    FLOOR(end_y / {grid_size})::int as end_cell_y,
+                    -- Calculate actual centroid coordinates for the cells
+                    (FLOOR(start_x / {grid_size}) * {grid_size} + {grid_size}/2) as start_centroid_x,
+                    (FLOOR(start_y / {grid_size}) * {grid_size} + {grid_size}/2) as start_centroid_y,
+                    (FLOOR(end_x / {grid_size}) * {grid_size} + {grid_size}/2) as end_centroid_x,
+                    (FLOOR(end_y / {grid_size}) * {grid_size} + {grid_size}/2) as end_centroid_y,
+                    EXTRACT(EPOCH FROM (travelendtime - travelstarttime))/60 as travel_time_minutes
+                FROM trip_coords
+                WHERE start_x IS NOT NULL AND end_x IS NOT NULL
+                  AND start_y IS NOT NULL AND end_y IS NOT NULL
+                  -- Exclude trips that stay in the same cell
+                  AND NOT (FLOOR(start_x / {grid_size}) = FLOOR(end_x / {grid_size})
+                       AND FLOOR(start_y / {grid_size}) = FLOOR(end_y / {grid_size}))
+            )
+            SELECT 
+                hour_bucket,
+                start_cell_x,
+                start_cell_y,
+                end_cell_x,
+                end_cell_y,
+                MIN(start_centroid_x) as start_x,
+                MIN(start_centroid_y) as start_y,
+                MIN(end_centroid_x) as end_x,
+                MIN(end_centroid_y) as end_y,
+                COUNT(*) as trips,
+                AVG(travel_time_minutes) as avg_travel_time,
+                -- Purpose breakdown
+                COUNT(*) FILTER (WHERE purpose = 'Work/Home Commute') as commute_trips,
+                COUNT(*) FILTER (WHERE purpose = 'Eating') as eating_trips,
+                COUNT(*) FILTER (WHERE purpose = 'Recreation (Social Gathering)') as recreation_trips,
+                COUNT(*) FILTER (WHERE purpose = 'Going Back to Home') as home_trips,
+                COUNT(*) FILTER (WHERE purpose = 'Coming Back From Restaurant') as from_restaurant_trips
+            FROM gridded_trips
+            GROUP BY hour_bucket, start_cell_x, start_cell_y, end_cell_x, end_cell_y
+            HAVING COUNT(*) >= {min_trips}
+            ORDER BY hour_bucket, trips DESC
+        """
+        
+        t0 = time.time()
+        cur.execute(query)
+        flows = [dict(row) for row in cur.fetchall()]
+        logger.info(f"Flows query time = {time.time() - t0:.3f}s, flows = {len(flows)}")
+        results['flows'] = flows
+        
+        # Calculate statistics
+        if flows:
+            all_trips = [f['trips'] for f in flows]
+            results['statistics'] = {
+                'total_flows': len(flows),
+                'total_trips': sum(all_trips),
+                'max_trips': max(all_trips),
+                'avg_trips': sum(all_trips) / len(all_trips),
+                'hours_covered': len(set(f['hour_bucket'] for f in flows))
+            }
+        else:
+            results['statistics'] = {
+                'total_flows': 0,
+                'total_trips': 0,
+                'max_trips': 0,
+                'avg_trips': 0,
+                'hours_covered': 0
+            }
+        
+        # Get cell-level aggregates for showing origin/destination intensity
+        cell_query = f"""
+            WITH trip_coords AS (
+                SELECT 
+                    t.participantid,
+                    t.travelstarttime,
+                    t.travelendtime,
+                    EXTRACT(HOUR FROM t.travelstarttime)::int as hour_bucket,
+                    (SELECT psl.currentlocation[0] 
+                     FROM participantstatuslogs psl 
+                     WHERE psl.participantid = t.participantid 
+                       AND psl.timestamp <= t.travelstarttime
+                       AND psl.currentlocation IS NOT NULL
+                     ORDER BY psl.timestamp DESC 
+                     LIMIT 1) as start_x,
+                    (SELECT psl.currentlocation[1] 
+                     FROM participantstatuslogs psl 
+                     WHERE psl.participantid = t.participantid 
+                       AND psl.timestamp <= t.travelstarttime
+                       AND psl.currentlocation IS NOT NULL
+                     ORDER BY psl.timestamp DESC 
+                     LIMIT 1) as start_y,
+                    (SELECT psl.currentlocation[0] 
+                     FROM participantstatuslogs psl 
+                     WHERE psl.participantid = t.participantid 
+                       AND psl.timestamp >= t.travelendtime
+                       AND psl.currentlocation IS NOT NULL
+                     ORDER BY psl.timestamp ASC 
+                     LIMIT 1) as end_x,
+                    (SELECT psl.currentlocation[1] 
+                     FROM participantstatuslogs psl 
+                     WHERE psl.participantid = t.participantid 
+                       AND psl.timestamp >= t.travelendtime
+                       AND psl.currentlocation IS NOT NULL
+                     ORDER BY psl.timestamp ASC 
+                     LIMIT 1) as end_y
+                FROM traveljournal t
+                WHERE 1=1 {day_clause} {purpose_clause}
+            ),
+            origins AS (
+                SELECT 
+                    hour_bucket,
+                    FLOOR(start_x / {grid_size})::int as cell_x,
+                    FLOOR(start_y / {grid_size})::int as cell_y,
+                    (FLOOR(start_x / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_x,
+                    (FLOOR(start_y / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_y,
+                    COUNT(*) as departures
+                FROM trip_coords
+                WHERE start_x IS NOT NULL AND start_y IS NOT NULL
+                GROUP BY hour_bucket, FLOOR(start_x / {grid_size}), FLOOR(start_y / {grid_size})
+            ),
+            destinations AS (
+                SELECT 
+                    hour_bucket,
+                    FLOOR(end_x / {grid_size})::int as cell_x,
+                    FLOOR(end_y / {grid_size})::int as cell_y,
+                    (FLOOR(end_x / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_x,
+                    (FLOOR(end_y / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_y,
+                    COUNT(*) as arrivals
+                FROM trip_coords
+                WHERE end_x IS NOT NULL AND end_y IS NOT NULL
+                GROUP BY hour_bucket, FLOOR(end_x / {grid_size}), FLOOR(end_y / {grid_size})
+            )
+            SELECT 
+                COALESCE(o.hour_bucket, d.hour_bucket) as hour_bucket,
+                COALESCE(o.cell_x, d.cell_x) as cell_x,
+                COALESCE(o.cell_y, d.cell_y) as cell_y,
+                COALESCE(o.centroid_x, d.centroid_x) as x,
+                COALESCE(o.centroid_y, d.centroid_y) as y,
+                COALESCE(o.departures, 0) as departures,
+                COALESCE(d.arrivals, 0) as arrivals,
+                COALESCE(d.arrivals, 0) - COALESCE(o.departures, 0) as net_flow
+            FROM origins o
+            FULL OUTER JOIN destinations d 
+                ON o.hour_bucket = d.hour_bucket 
+                AND o.cell_x = d.cell_x 
+                AND o.cell_y = d.cell_y
+            ORDER BY hour_bucket, (COALESCE(o.departures, 0) + COALESCE(d.arrivals, 0)) DESC
+        """
+        
+        t0 = time.time()
+        cur.execute(cell_query)
+        cells = [dict(row) for row in cur.fetchall()]
+        logger.info(f"Cells query time = {time.time() - t0:.3f}s, cells = {len(cells)}")
+        results['cells'] = cells
+        
+        # Get buildings for base map context
+        t0 = time.time()
+        cur.execute("""
+            SELECT 
+                buildingid,
+                location::text as location,
+                buildingtype::text as buildingtype
+            FROM buildings
+        """)
+        results['buildings'] = [dict(row) for row in cur.fetchall()]
+        logger.info(f"Buildings query time = {time.time() - t0:.3f}s")
+        
+        # Get purpose options
+        t0 = time.time()
+        cur.execute("""
+            SELECT DISTINCT purpose::text as purpose, COUNT(*) as count
+            FROM traveljournal
+            GROUP BY purpose
+            ORDER BY count DESC
+        """)
+        results['purposes'] = [dict(row) for row in cur.fetchall()]
+        logger.info(f"Purposes query time = {time.time() - t0:.3f}s")
+        
+        # Cache results
+        _flow_map_cache[cache_key] = results
+        
+        cur.close()
+        return_db_connection(conn)
+        
+        return jsonify(results)
+    
+    except Exception as e:
+        logger.error("Error in /api/flow-map", exc_info=e)
+        cur.close()
+        return_db_connection(conn)
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == '__main__':
+    logger.info("Starting Flask server on 0.0.0.0:5000 ...")
     app.run(host='0.0.0.0', port=5000)

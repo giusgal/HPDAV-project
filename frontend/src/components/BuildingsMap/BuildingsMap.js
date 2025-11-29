@@ -22,6 +22,7 @@ function BuildingsMap() {
   const svgRef = useRef(null);
   const tooltipRef = useRef(null);
   const chartRef = useRef(null);
+  const initializedRef = useRef(false);
 
   // State - which venue layers are visible
   const [visibleLayers, setVisibleLayers] = useState({
@@ -94,16 +95,16 @@ function BuildingsMap() {
       chartRef.current = new BuildingsMapChart(svgRef.current, controller);
       chartRef.current.initialize();
 
-      requestAnimationFrame(() => {
-        if (chartRef.current) {
-          chartRef.current.update({
-            buildings: data.buildings,
-            venues: data.venues,
-            bounds: data.bounds,
-            visibleLayers,
-          });
-        }
-      });
+      // requestAnimationFrame(() => {
+      //   if (chartRef.current) {
+      //     chartRef.current.update({
+      //       buildings: data.buildings,
+      //       venues: data.venues,
+      //       bounds: data.bounds,
+      //       visibleLayers,
+      //     });
+      //   }
+      // });
     }
 
     return () => {

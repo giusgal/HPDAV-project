@@ -9,7 +9,7 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000,
+  timeout: 300000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -141,6 +141,33 @@ export const fetchHeatmapData = async (params = {}) => {
  */
 export const fetchBuildingsMapData = async (params = {}) => {
   const response = await apiClient.get('/api/buildings-map');
+  return response.data;
+};
+
+/**
+ * Fetch flow map data for animated OD (Origin-Destination) visualization.
+ * @param {Object} params - Query parameters
+ * @param {number} params.gridSize - Size of grid cells for spatial binning (default: 300)
+ * @param {string} params.dayType - Day type filter: 'all', 'weekday', 'weekend' (default: 'all')
+ * @param {string} params.purpose - Travel purpose filter (default: 'all')
+ * @param {number} params.minTrips - Minimum trips to show a flow (default: 5)
+ * @returns {Promise<Object>} Flow map data with flows, cells, and buildings
+ */
+export const fetchFlowMapData = async (params = {}) => {
+  const { 
+    gridSize = 300, 
+    dayType = 'all', 
+    purpose = 'all',
+    minTrips = 5 
+  } = params;
+  const response = await apiClient.get('/api/flow-map', {
+    params: { 
+      grid_size: gridSize, 
+      day_type: dayType,
+      purpose,
+      min_trips: minTrips
+    }
+  });
   return response.data;
 };
 
