@@ -48,10 +48,42 @@ echo "[INFO] waiting some seconds before"
 echo "[INFO] creating DB (this might take several minutes) and removing create_db file"
 sudo docker compose exec -T db psql -U myuser -d hpdavDB < ./data/create_db.sql && rm -rf ./data/create_db.sql
 
+echo "[INFO] Creating indexes..."
+sudo docker compose exec -T db psql -U myuser -d hpdavDB <<'EOF'
+CREATE INDEX IF NOT EXISTS idx_checkin_timestamp
+    ON public.checkinjournal USING btree ("timestamp");
+
+CREATE INDEX IF NOT EXISTS idx_checkin_venue
+    ON public.checkinjournal USING btree (venueid, venuetype);
+
+CREATE INDEX IF NOT EXISTS idx_psl_participant_apt
+    ON public.participantstatuslogs USING btree (participantid, apartmentid)
+    WHERE apartmentid IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_travel_locations
+    ON public.traveljournal USING btree (travelstartlocationid, travelendlocationid);
+
+
+-- Speed up "start" lookups
+CREATE INDEX idx_psl_participant_time_desc
+ON participantstatuslogs (participantid, "timestamp" DESC)
+INCLUDE (currentlocation);
+
+-- Speed up "end" lookups
+CREATE INDEX idx_psl_participant_time_asc
+ON participantstatuslogs (participantid, "timestamp" ASC)
+INCLUDE (currentlocation);
+
+-- Optional: filters
+CREATE INDEX idx_traveljournal_purpose
+ON traveljournal (purpose);
+
+CREATE INDEX idx_traveljournal_starttime
+ON traveljournal (travelstarttime);
+EOF
+
+
+echo "[INFO] Indexes created."
+
 echo "[INFO] Finished"
 echo " Connect to http://localhost:5000"
-
-# 1. wget "" to ./data
-# 1. unzip file and delete zip
-# 1. docker compose up --build -d
-# 1. connect and create db
