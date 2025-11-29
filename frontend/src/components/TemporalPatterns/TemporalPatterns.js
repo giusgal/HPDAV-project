@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { fetchTemporalPatterns } from '../../hooks/useApi';
-import { ActivityChart, SpendingChart, SocialChart } from './d3/TemporalPatternsChart';
+import { ActivityChart, SpendingChart, SocialChart } from './TemporalPatternsChart';
 import './TemporalPatterns.css';
 
 const TemporalPatterns = () => {

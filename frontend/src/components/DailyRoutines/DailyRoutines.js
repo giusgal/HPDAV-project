@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { useApi, fetchParticipantRoutines } from '../../hooks/useApi';
-import DailyRoutinesChart, { ACTIVITY_COLORS, ACTIVITY_LABELS } from './d3/DailyRoutinesChart';
+import DailyRoutinesChart, { ACTIVITY_COLORS, ACTIVITY_LABELS } from './DailyRoutinesChart';
 import './DailyRoutines.css';
 
 // Pre-selected interesting participants with different routines

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
-import BuildingsMap from './components/visualizations/BuildingsMap';
-import { AreaCharacteristics, TrafficPatterns, DailyRoutines, TemporalPatterns } from './components/visualizations';
+import { BuildingsMap, AreaCharacteristics, TrafficPatterns, DailyRoutines, TemporalPatterns } from './components';
 import './App.css';
 
 const VIEWS = {

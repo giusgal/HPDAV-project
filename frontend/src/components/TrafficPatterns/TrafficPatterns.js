@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { useApi, fetchTrafficPatterns, fetchBuildingsMapData } from '../../hooks/useApi';
-import { TrafficPatternsChart, HourlyChart } from './d3/TrafficPatternsChart';
+import { TrafficPatternsChart, HourlyChart } from './TrafficPatternsChart';
 import './TrafficPatterns.css';
 
 const METRICS = [

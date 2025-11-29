@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { useApi, fetchBuildingsMapData } from '../../hooks/useApi';
-import BuildingsMapChart from './d3/BuildingsMapChart';
+import BuildingsMapChart from './BuildingsMapChart';
 import './BuildingsMap.css';
 
 // Venue layer configuration
