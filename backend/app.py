@@ -1095,10 +1095,9 @@ def flow_map():
     Endpoint for animated flow map visualization showing OD (Origin-Destination) patterns.
     
     This endpoint:
-    1. Joins traveljournal with participantstatuslogs to get coordinates
-    2. Bins coordinates into grid cells
-    3. Aggregates flows by hour and OD pairs
-    4. Returns data for Bezier arc visualization
+    1. Uses pre-computed trip_coordinates materialized view (if available)
+    2. Falls back to LATERAL join query if materialized view doesn't exist
+    3. Bins coordinates into grid cells and aggregates flows by hour
     
     Parameters:
     - grid_size: Size of grid cells for spatial binning (default: 300)
@@ -1147,110 +1146,272 @@ def flow_map():
             'max_y': bounds['max_y']
         }
         
+        # Check if materialized view exists
+        t0 = time.time()
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT 1 FROM pg_matviews WHERE matviewname = 'trip_coordinates'
+            ) as mv_exists
+        """)
+        mv_exists = cur.fetchone()['mv_exists']
+        logger.info(f"MV check time = {time.time() - t0:.3f}s, exists = {mv_exists}")
+        
         # Build day filter
-        day_clause = ""
         if day_type == 'weekday':
-            day_clause = "AND EXTRACT(DOW FROM t.travelstarttime) BETWEEN 1 AND 5"
+            day_clause = "AND day_of_week BETWEEN 1 AND 5"
         elif day_type == 'weekend':
-            day_clause = "AND EXTRACT(DOW FROM t.travelstarttime) IN (0, 6)"
+            day_clause = "AND day_of_week IN (0, 6)"
+        else:
+            day_clause = ""
         
         # Build purpose filter
-        purpose_clause = ""
         if purpose != 'all':
-            purpose_clause = f"AND t.purpose = '{purpose}'"
+            purpose_clause = f"AND purpose = '{purpose}'"
+        else:
+            purpose_clause = ""
         
-        # Main query: Join traveljournal with participantstatuslogs to get coordinates
-        # For each trip, find the status log closest to travel start/end time
-        query = f"""
-            WITH trip_coords AS (
-                SELECT 
-                    t.travelid,
-                    t.participantid,
-                    t.travelstarttime,
-                    t.travelendtime,
-                    t.purpose::text as purpose,
-                    EXTRACT(HOUR FROM t.travelstarttime)::int as hour_bucket,
-                    EXTRACT(DOW FROM t.travelstarttime)::int as day_of_week,
-                    -- Get start location from status log just before/at travel start
-                    (SELECT psl.currentlocation[0] 
-                     FROM participantstatuslogs psl 
-                     WHERE psl.participantid = t.participantid 
-                       AND psl.timestamp <= t.travelstarttime
-                       AND psl.currentlocation IS NOT NULL
-                     ORDER BY psl.timestamp DESC 
-                     LIMIT 1) as start_x,
-                    (SELECT psl.currentlocation[1] 
-                     FROM participantstatuslogs psl 
-                     WHERE psl.participantid = t.participantid 
-                       AND psl.timestamp <= t.travelstarttime
-                       AND psl.currentlocation IS NOT NULL
-                     ORDER BY psl.timestamp DESC 
-                     LIMIT 1) as start_y,
-                    -- Get end location from status log just after/at travel end
-                    (SELECT psl.currentlocation[0] 
-                     FROM participantstatuslogs psl 
-                     WHERE psl.participantid = t.participantid 
-                       AND psl.timestamp >= t.travelendtime
-                       AND psl.currentlocation IS NOT NULL
-                     ORDER BY psl.timestamp ASC 
-                     LIMIT 1) as end_x,
-                    (SELECT psl.currentlocation[1] 
-                     FROM participantstatuslogs psl 
-                     WHERE psl.participantid = t.participantid 
-                       AND psl.timestamp >= t.travelendtime
-                       AND psl.currentlocation IS NOT NULL
-                     ORDER BY psl.timestamp ASC 
-                     LIMIT 1) as end_y
-                FROM traveljournal t
-                WHERE 1=1 {day_clause} {purpose_clause}
-            ),
-            gridded_trips AS (
+        if mv_exists:
+            # Use fast materialized view query
+            flows_query = f"""
+                WITH gridded_trips AS (
+                    SELECT 
+                        hour_bucket,
+                        purpose,
+                        FLOOR(start_x / {grid_size})::int as start_cell_x,
+                        FLOOR(start_y / {grid_size})::int as start_cell_y,
+                        FLOOR(end_x / {grid_size})::int as end_cell_x,
+                        FLOOR(end_y / {grid_size})::int as end_cell_y,
+                        (FLOOR(start_x / {grid_size}) * {grid_size} + {grid_size}/2) as start_centroid_x,
+                        (FLOOR(start_y / {grid_size}) * {grid_size} + {grid_size}/2) as start_centroid_y,
+                        (FLOOR(end_x / {grid_size}) * {grid_size} + {grid_size}/2) as end_centroid_x,
+                        (FLOOR(end_y / {grid_size}) * {grid_size} + {grid_size}/2) as end_centroid_y,
+                        travel_time_minutes
+                    FROM trip_coordinates
+                    WHERE start_x IS NOT NULL AND end_x IS NOT NULL
+                      AND start_y IS NOT NULL AND end_y IS NOT NULL
+                      AND NOT (FLOOR(start_x / {grid_size}) = FLOOR(end_x / {grid_size})
+                           AND FLOOR(start_y / {grid_size}) = FLOOR(end_y / {grid_size}))
+                      {day_clause} {purpose_clause}
+                )
                 SELECT 
                     hour_bucket,
-                    purpose,
-                    FLOOR(start_x / {grid_size})::int as start_cell_x,
-                    FLOOR(start_y / {grid_size})::int as start_cell_y,
-                    FLOOR(end_x / {grid_size})::int as end_cell_x,
-                    FLOOR(end_y / {grid_size})::int as end_cell_y,
-                    -- Calculate actual centroid coordinates for the cells
-                    (FLOOR(start_x / {grid_size}) * {grid_size} + {grid_size}/2) as start_centroid_x,
-                    (FLOOR(start_y / {grid_size}) * {grid_size} + {grid_size}/2) as start_centroid_y,
-                    (FLOOR(end_x / {grid_size}) * {grid_size} + {grid_size}/2) as end_centroid_x,
-                    (FLOOR(end_y / {grid_size}) * {grid_size} + {grid_size}/2) as end_centroid_y,
-                    EXTRACT(EPOCH FROM (travelendtime - travelstarttime))/60 as travel_time_minutes
-                FROM trip_coords
-                WHERE start_x IS NOT NULL AND end_x IS NOT NULL
-                  AND start_y IS NOT NULL AND end_y IS NOT NULL
-                  -- Exclude trips that stay in the same cell
-                  AND NOT (FLOOR(start_x / {grid_size}) = FLOOR(end_x / {grid_size})
-                       AND FLOOR(start_y / {grid_size}) = FLOOR(end_y / {grid_size}))
-            )
-            SELECT 
-                hour_bucket,
-                start_cell_x,
-                start_cell_y,
-                end_cell_x,
-                end_cell_y,
-                MIN(start_centroid_x) as start_x,
-                MIN(start_centroid_y) as start_y,
-                MIN(end_centroid_x) as end_x,
-                MIN(end_centroid_y) as end_y,
-                COUNT(*) as trips,
-                AVG(travel_time_minutes) as avg_travel_time,
-                -- Purpose breakdown
-                COUNT(*) FILTER (WHERE purpose = 'Work/Home Commute') as commute_trips,
-                COUNT(*) FILTER (WHERE purpose = 'Eating') as eating_trips,
-                COUNT(*) FILTER (WHERE purpose = 'Recreation (Social Gathering)') as recreation_trips,
-                COUNT(*) FILTER (WHERE purpose = 'Going Back to Home') as home_trips,
-                COUNT(*) FILTER (WHERE purpose = 'Coming Back From Restaurant') as from_restaurant_trips
-            FROM gridded_trips
-            GROUP BY hour_bucket, start_cell_x, start_cell_y, end_cell_x, end_cell_y
-            HAVING COUNT(*) >= {min_trips}
-            ORDER BY hour_bucket, trips DESC
-        """
+                    start_cell_x,
+                    start_cell_y,
+                    end_cell_x,
+                    end_cell_y,
+                    MIN(start_centroid_x) as start_x,
+                    MIN(start_centroid_y) as start_y,
+                    MIN(end_centroid_x) as end_x,
+                    MIN(end_centroid_y) as end_y,
+                    COUNT(*) as trips,
+                    AVG(travel_time_minutes) as avg_travel_time,
+                    COUNT(*) FILTER (WHERE purpose = 'Work/Home Commute') as commute_trips,
+                    COUNT(*) FILTER (WHERE purpose = 'Eating') as eating_trips,
+                    COUNT(*) FILTER (WHERE purpose = 'Recreation (Social Gathering)') as recreation_trips,
+                    COUNT(*) FILTER (WHERE purpose = 'Going Back to Home') as home_trips,
+                    COUNT(*) FILTER (WHERE purpose = 'Coming Back From Restaurant') as from_restaurant_trips
+                FROM gridded_trips
+                GROUP BY hour_bucket, start_cell_x, start_cell_y, end_cell_x, end_cell_y
+                HAVING COUNT(*) >= {min_trips}
+                ORDER BY hour_bucket, trips DESC
+            """
+            
+            cells_query = f"""
+                WITH origins AS (
+                    SELECT 
+                        hour_bucket,
+                        FLOOR(start_x / {grid_size})::int as cell_x,
+                        FLOOR(start_y / {grid_size})::int as cell_y,
+                        (FLOOR(start_x / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_x,
+                        (FLOOR(start_y / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_y,
+                        COUNT(*) as departures
+                    FROM trip_coordinates
+                    WHERE start_x IS NOT NULL AND start_y IS NOT NULL
+                      {day_clause} {purpose_clause}
+                    GROUP BY hour_bucket, FLOOR(start_x / {grid_size}), FLOOR(start_y / {grid_size})
+                ),
+                destinations AS (
+                    SELECT 
+                        hour_bucket,
+                        FLOOR(end_x / {grid_size})::int as cell_x,
+                        FLOOR(end_y / {grid_size})::int as cell_y,
+                        (FLOOR(end_x / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_x,
+                        (FLOOR(end_y / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_y,
+                        COUNT(*) as arrivals
+                    FROM trip_coordinates
+                    WHERE end_x IS NOT NULL AND end_y IS NOT NULL
+                      {day_clause} {purpose_clause}
+                    GROUP BY hour_bucket, FLOOR(end_x / {grid_size}), FLOOR(end_y / {grid_size})
+                )
+                SELECT 
+                    COALESCE(o.hour_bucket, d.hour_bucket) as hour_bucket,
+                    COALESCE(o.cell_x, d.cell_x) as cell_x,
+                    COALESCE(o.cell_y, d.cell_y) as cell_y,
+                    COALESCE(o.centroid_x, d.centroid_x) as x,
+                    COALESCE(o.centroid_y, d.centroid_y) as y,
+                    COALESCE(o.departures, 0) as departures,
+                    COALESCE(d.arrivals, 0) as arrivals,
+                    COALESCE(d.arrivals, 0) - COALESCE(o.departures, 0) as net_flow
+                FROM origins o
+                FULL OUTER JOIN destinations d 
+                    ON o.hour_bucket = d.hour_bucket 
+                    AND o.cell_x = d.cell_x 
+                    AND o.cell_y = d.cell_y
+                ORDER BY hour_bucket, (COALESCE(o.departures, 0) + COALESCE(d.arrivals, 0)) DESC
+            """
+        else:
+            # Fallback: Use LATERAL join (much faster than correlated subqueries)
+            day_clause_tj = day_clause.replace("day_of_week", "EXTRACT(DOW FROM t.travelstarttime)::int")
+            purpose_clause_tj = purpose_clause.replace("purpose", "t.purpose::text")
+            
+            flows_query = f"""
+                WITH trip_coords AS (
+                    SELECT 
+                        t.travelid,
+                        t.purpose::text as purpose,
+                        EXTRACT(HOUR FROM t.travelstarttime)::int as hour_bucket,
+                        EXTRACT(DOW FROM t.travelstarttime)::int as day_of_week,
+                        start_loc.currentlocation[0] as start_x,
+                        start_loc.currentlocation[1] as start_y,
+                        end_loc.currentlocation[0] as end_x,
+                        end_loc.currentlocation[1] as end_y,
+                        EXTRACT(EPOCH FROM (t.travelendtime - t.travelstarttime))/60 as travel_time_minutes
+                    FROM traveljournal t
+                    LEFT JOIN LATERAL (
+                        SELECT currentlocation
+                        FROM participantstatuslogs psl
+                        WHERE psl.participantid = t.participantid 
+                          AND psl.timestamp <= t.travelstarttime
+                          AND psl.currentlocation IS NOT NULL
+                        ORDER BY psl.timestamp DESC
+                        LIMIT 1
+                    ) start_loc ON true
+                    LEFT JOIN LATERAL (
+                        SELECT currentlocation
+                        FROM participantstatuslogs psl
+                        WHERE psl.participantid = t.participantid 
+                          AND psl.timestamp >= t.travelendtime
+                          AND psl.currentlocation IS NOT NULL
+                        ORDER BY psl.timestamp ASC
+                        LIMIT 1
+                    ) end_loc ON true
+                    WHERE 1=1 {day_clause_tj} {purpose_clause_tj}
+                ),
+                gridded_trips AS (
+                    SELECT 
+                        hour_bucket,
+                        purpose,
+                        FLOOR(start_x / {grid_size})::int as start_cell_x,
+                        FLOOR(start_y / {grid_size})::int as start_cell_y,
+                        FLOOR(end_x / {grid_size})::int as end_cell_x,
+                        FLOOR(end_y / {grid_size})::int as end_cell_y,
+                        (FLOOR(start_x / {grid_size}) * {grid_size} + {grid_size}/2) as start_centroid_x,
+                        (FLOOR(start_y / {grid_size}) * {grid_size} + {grid_size}/2) as start_centroid_y,
+                        (FLOOR(end_x / {grid_size}) * {grid_size} + {grid_size}/2) as end_centroid_x,
+                        (FLOOR(end_y / {grid_size}) * {grid_size} + {grid_size}/2) as end_centroid_y,
+                        travel_time_minutes
+                    FROM trip_coords
+                    WHERE start_x IS NOT NULL AND end_x IS NOT NULL
+                      AND start_y IS NOT NULL AND end_y IS NOT NULL
+                      AND NOT (FLOOR(start_x / {grid_size}) = FLOOR(end_x / {grid_size})
+                           AND FLOOR(start_y / {grid_size}) = FLOOR(end_y / {grid_size}))
+                )
+                SELECT 
+                    hour_bucket,
+                    start_cell_x,
+                    start_cell_y,
+                    end_cell_x,
+                    end_cell_y,
+                    MIN(start_centroid_x) as start_x,
+                    MIN(start_centroid_y) as start_y,
+                    MIN(end_centroid_x) as end_x,
+                    MIN(end_centroid_y) as end_y,
+                    COUNT(*) as trips,
+                    AVG(travel_time_minutes) as avg_travel_time,
+                    COUNT(*) FILTER (WHERE purpose = 'Work/Home Commute') as commute_trips,
+                    COUNT(*) FILTER (WHERE purpose = 'Eating') as eating_trips,
+                    COUNT(*) FILTER (WHERE purpose = 'Recreation (Social Gathering)') as recreation_trips,
+                    COUNT(*) FILTER (WHERE purpose = 'Going Back to Home') as home_trips,
+                    COUNT(*) FILTER (WHERE purpose = 'Coming Back From Restaurant') as from_restaurant_trips
+                FROM gridded_trips
+                GROUP BY hour_bucket, start_cell_x, start_cell_y, end_cell_x, end_cell_y
+                HAVING COUNT(*) >= {min_trips}
+                ORDER BY hour_bucket, trips DESC
+            """
+            
+            cells_query = f"""
+                WITH trip_coords AS (
+                    SELECT 
+                        EXTRACT(HOUR FROM t.travelstarttime)::int as hour_bucket,
+                        start_loc.currentlocation[0] as start_x,
+                        start_loc.currentlocation[1] as start_y,
+                        end_loc.currentlocation[0] as end_x,
+                        end_loc.currentlocation[1] as end_y
+                    FROM traveljournal t
+                    LEFT JOIN LATERAL (
+                        SELECT currentlocation
+                        FROM participantstatuslogs psl
+                        WHERE psl.participantid = t.participantid 
+                          AND psl.timestamp <= t.travelstarttime
+                          AND psl.currentlocation IS NOT NULL
+                        ORDER BY psl.timestamp DESC
+                        LIMIT 1
+                    ) start_loc ON true
+                    LEFT JOIN LATERAL (
+                        SELECT currentlocation
+                        FROM participantstatuslogs psl
+                        WHERE psl.participantid = t.participantid 
+                          AND psl.timestamp >= t.travelendtime
+                          AND psl.currentlocation IS NOT NULL
+                        ORDER BY psl.timestamp ASC
+                        LIMIT 1
+                    ) end_loc ON true
+                    WHERE 1=1 {day_clause_tj} {purpose_clause_tj}
+                ),
+                origins AS (
+                    SELECT 
+                        hour_bucket,
+                        FLOOR(start_x / {grid_size})::int as cell_x,
+                        FLOOR(start_y / {grid_size})::int as cell_y,
+                        (FLOOR(start_x / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_x,
+                        (FLOOR(start_y / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_y,
+                        COUNT(*) as departures
+                    FROM trip_coords
+                    WHERE start_x IS NOT NULL AND start_y IS NOT NULL
+                    GROUP BY hour_bucket, FLOOR(start_x / {grid_size}), FLOOR(start_y / {grid_size})
+                ),
+                destinations AS (
+                    SELECT 
+                        hour_bucket,
+                        FLOOR(end_x / {grid_size})::int as cell_x,
+                        FLOOR(end_y / {grid_size})::int as cell_y,
+                        (FLOOR(end_x / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_x,
+                        (FLOOR(end_y / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_y,
+                        COUNT(*) as arrivals
+                    FROM trip_coords
+                    WHERE end_x IS NOT NULL AND end_y IS NOT NULL
+                    GROUP BY hour_bucket, FLOOR(end_x / {grid_size}), FLOOR(end_y / {grid_size})
+                )
+                SELECT 
+                    COALESCE(o.hour_bucket, d.hour_bucket) as hour_bucket,
+                    COALESCE(o.cell_x, d.cell_x) as cell_x,
+                    COALESCE(o.cell_y, d.cell_y) as cell_y,
+                    COALESCE(o.centroid_x, d.centroid_x) as x,
+                    COALESCE(o.centroid_y, d.centroid_y) as y,
+                    COALESCE(o.departures, 0) as departures,
+                    COALESCE(d.arrivals, 0) as arrivals,
+                    COALESCE(d.arrivals, 0) - COALESCE(o.departures, 0) as net_flow
+                FROM origins o
+                FULL OUTER JOIN destinations d 
+                    ON o.hour_bucket = d.hour_bucket 
+                    AND o.cell_x = d.cell_x 
+                    AND o.cell_y = d.cell_y
+                ORDER BY hour_bucket, (COALESCE(o.departures, 0) + COALESCE(d.arrivals, 0)) DESC
+            """
         
+        # Execute flows query
         t0 = time.time()
-        cur.execute(query)
+        cur.execute(flows_query)
         flows = [dict(row) for row in cur.fetchall()]
         logger.info(f"Flows query time = {time.time() - t0:.3f}s, flows = {len(flows)}")
         results['flows'] = flows
@@ -1274,88 +1435,9 @@ def flow_map():
                 'hours_covered': 0
             }
         
-        # Get cell-level aggregates for showing origin/destination intensity
-        cell_query = f"""
-            WITH trip_coords AS (
-                SELECT 
-                    t.participantid,
-                    t.travelstarttime,
-                    t.travelendtime,
-                    EXTRACT(HOUR FROM t.travelstarttime)::int as hour_bucket,
-                    (SELECT psl.currentlocation[0] 
-                     FROM participantstatuslogs psl 
-                     WHERE psl.participantid = t.participantid 
-                       AND psl.timestamp <= t.travelstarttime
-                       AND psl.currentlocation IS NOT NULL
-                     ORDER BY psl.timestamp DESC 
-                     LIMIT 1) as start_x,
-                    (SELECT psl.currentlocation[1] 
-                     FROM participantstatuslogs psl 
-                     WHERE psl.participantid = t.participantid 
-                       AND psl.timestamp <= t.travelstarttime
-                       AND psl.currentlocation IS NOT NULL
-                     ORDER BY psl.timestamp DESC 
-                     LIMIT 1) as start_y,
-                    (SELECT psl.currentlocation[0] 
-                     FROM participantstatuslogs psl 
-                     WHERE psl.participantid = t.participantid 
-                       AND psl.timestamp >= t.travelendtime
-                       AND psl.currentlocation IS NOT NULL
-                     ORDER BY psl.timestamp ASC 
-                     LIMIT 1) as end_x,
-                    (SELECT psl.currentlocation[1] 
-                     FROM participantstatuslogs psl 
-                     WHERE psl.participantid = t.participantid 
-                       AND psl.timestamp >= t.travelendtime
-                       AND psl.currentlocation IS NOT NULL
-                     ORDER BY psl.timestamp ASC 
-                     LIMIT 1) as end_y
-                FROM traveljournal t
-                WHERE 1=1 {day_clause} {purpose_clause}
-            ),
-            origins AS (
-                SELECT 
-                    hour_bucket,
-                    FLOOR(start_x / {grid_size})::int as cell_x,
-                    FLOOR(start_y / {grid_size})::int as cell_y,
-                    (FLOOR(start_x / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_x,
-                    (FLOOR(start_y / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_y,
-                    COUNT(*) as departures
-                FROM trip_coords
-                WHERE start_x IS NOT NULL AND start_y IS NOT NULL
-                GROUP BY hour_bucket, FLOOR(start_x / {grid_size}), FLOOR(start_y / {grid_size})
-            ),
-            destinations AS (
-                SELECT 
-                    hour_bucket,
-                    FLOOR(end_x / {grid_size})::int as cell_x,
-                    FLOOR(end_y / {grid_size})::int as cell_y,
-                    (FLOOR(end_x / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_x,
-                    (FLOOR(end_y / {grid_size}) * {grid_size} + {grid_size}/2) as centroid_y,
-                    COUNT(*) as arrivals
-                FROM trip_coords
-                WHERE end_x IS NOT NULL AND end_y IS NOT NULL
-                GROUP BY hour_bucket, FLOOR(end_x / {grid_size}), FLOOR(end_y / {grid_size})
-            )
-            SELECT 
-                COALESCE(o.hour_bucket, d.hour_bucket) as hour_bucket,
-                COALESCE(o.cell_x, d.cell_x) as cell_x,
-                COALESCE(o.cell_y, d.cell_y) as cell_y,
-                COALESCE(o.centroid_x, d.centroid_x) as x,
-                COALESCE(o.centroid_y, d.centroid_y) as y,
-                COALESCE(o.departures, 0) as departures,
-                COALESCE(d.arrivals, 0) as arrivals,
-                COALESCE(d.arrivals, 0) - COALESCE(o.departures, 0) as net_flow
-            FROM origins o
-            FULL OUTER JOIN destinations d 
-                ON o.hour_bucket = d.hour_bucket 
-                AND o.cell_x = d.cell_x 
-                AND o.cell_y = d.cell_y
-            ORDER BY hour_bucket, (COALESCE(o.departures, 0) + COALESCE(d.arrivals, 0)) DESC
-        """
-        
+        # Execute cells query
         t0 = time.time()
-        cur.execute(cell_query)
+        cur.execute(cells_query)
         cells = [dict(row) for row in cur.fetchall()]
         logger.info(f"Cells query time = {time.time() - t0:.3f}s, cells = {len(cells)}")
         results['cells'] = cells

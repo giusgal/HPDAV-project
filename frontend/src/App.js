@@ -4,20 +4,12 @@ import { BuildingsMap, AreaCharacteristics, TrafficPatterns, DailyRoutines, Temp
 import './App.css';
 
 const VIEWS = {
-  "buildings-map": {
-    id: "buildings-map",
-    label: "Buildings Map",
-    component: BuildingsMap,
-  },
-  "area-characteristics": {
-    id: "area-characteristics",
-    label: "Area Characteristics",
-    component: AreaCharacteristics,
-  },
+  "buildings-map": {id: "buildings-map", label: "Buildings Map", component: BuildingsMap},
+  "area-characteristics": {id: "area-characteristics", label: "Area Characteristics", component: AreaCharacteristics},
   'traffic-patterns': { id: 'traffic-patterns', label: 'Traffic Patterns', component: TrafficPatterns },
+  'flow-map': { id: 'flow-map', label: 'Flow Map', component: FlowMap },
   'daily-routines': { id: 'daily-routines', label: 'Daily Routines', component: DailyRoutines },
   'temporal-patterns': { id: 'temporal-patterns', label: 'Temporal Patterns', component: TemporalPatterns },
-  'flow-map': { id: 'flow-map', label: 'Flow Map', component: FlowMap },
 };
 
 function App() {
