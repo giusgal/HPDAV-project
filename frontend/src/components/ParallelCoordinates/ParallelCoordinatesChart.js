@@ -8,15 +8,11 @@ class ParallelCoordinatesChart {
     
     // Define the dimensions for parallel coordinates
     this.dimensions = [
-      { key: 'joviality', label: 'joviality' },
-      { key: 'activities', label: 'activites' }, // Note: typo from image
-      { key: 'travel', label: 'travel' },
-      { key: 'social', label: 'social' },
-      { key: 'eat', label: 'eat' },
-      { key: 'home', label: 'home' },
-      { key: 'work', label: 'work' },
-      { key: 'leave', label: 'leave' },
-      { key: 'start', label: 'start' }
+      { key: 'work', label: 'Work' },
+      { key: 'home', label: 'Home' },
+      { key: 'social', label: 'Social' },
+      { key: 'food', label: 'Food' },
+      { key: 'travel', label: 'Travel' }
     ];
   }
 

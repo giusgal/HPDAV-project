@@ -2003,25 +2003,20 @@ def get_parallel_coordinates():
         t0 = time.time()
         logger.info("Querying parallel coordinates data...")
         
-        # Query to get activity counts by participant and venue type
-        # Categories:
-        # - joviality: Pub visits
-        # - activities: Recreation purpose travels
-        # - travel: total travels
-        # - social: Pub + Restaurant visits
-        # - eat: Restaurant visits
+        # Query to get activity counts by participant for 5 main categories:
+        # - work: Workplace visits + Work/Home Commute travels
         # - home: Apartment visits
-        # - work: Workplace visits
-        # - leave: distinct days with activities
-        # - start: total check-ins
+        # - social: Pub visits + Recreation travels
+        # - food: Restaurant visits + Eating travels
+        # - travel: Total travels
         cur.execute("""
-            WITH participant_counts AS (
+            WITH venue_counts AS (
                 SELECT 
                     participantid,
-                    COUNT(*) FILTER (WHERE venuetype = 'Pub') as joviality,
-                    COUNT(*) FILTER (WHERE venuetype = 'Restaurant') as eat,
-                    COUNT(*) FILTER (WHERE venuetype = 'Apartment') as home,
-                    COUNT(*) FILTER (WHERE venuetype = 'Workplace') as work
+                    COUNT(*) FILTER (WHERE venuetype = 'Workplace') as workplace_visits,
+                    COUNT(*) FILTER (WHERE venuetype = 'Apartment') as home_visits,
+                    COUNT(*) FILTER (WHERE venuetype = 'Pub') as pub_visits,
+                    COUNT(*) FILTER (WHERE venuetype = 'Restaurant') as restaurant_visits
                 FROM checkinjournal
                 WHERE venuetype IS NOT NULL
                 GROUP BY participantid
@@ -2029,43 +2024,23 @@ def get_parallel_coordinates():
             travel_counts AS (
                 SELECT 
                     participantid,
-                    COUNT(*) as travel,
-                    COUNT(*) FILTER (WHERE purpose = 'Recreation (Social Gathering)') as activities
+                    COUNT(*) as total_travels,
+                    COUNT(*) FILTER (WHERE purpose = 'Work/Home Commute') as work_travels,
+                    COUNT(*) FILTER (WHERE purpose = 'Recreation (Social Gathering)') as recreation_travels,
+                    COUNT(*) FILTER (WHERE purpose = 'Eating') as eating_travels
                 FROM traveljournal
-                GROUP BY participantid
-            ),
-            social_counts AS (
-                SELECT 
-                    participantid,
-                    COUNT(*) as social
-                FROM checkinjournal
-                WHERE venuetype IN ('Pub', 'Restaurant')
-                GROUP BY participantid
-            ),
-            first_last_activity AS (
-                SELECT 
-                    participantid,
-                    COUNT(DISTINCT DATE(timestamp)) as leave,
-                    COUNT(*) as start
-                FROM checkinjournal
                 GROUP BY participantid
             )
             SELECT 
                 p.participantid,
-                COALESCE(pc.joviality, 0) as joviality,
-                COALESCE(tc.activities, 0) as activities,
-                COALESCE(tc.travel, 0) as travel,
-                COALESCE(sc.social, 0) as social,
-                COALESCE(pc.eat, 0) as eat,
-                COALESCE(pc.home, 0) as home,
-                COALESCE(pc.work, 0) as work,
-                COALESCE(fla.leave, 0) as leave,
-                COALESCE(fla.start, 0) as start
+                COALESCE(vc.workplace_visits, 0) + COALESCE(tc.work_travels, 0) as work,
+                COALESCE(vc.home_visits, 0) as home,
+                COALESCE(vc.pub_visits, 0) + COALESCE(tc.recreation_travels, 0) as social,
+                COALESCE(vc.restaurant_visits, 0) + COALESCE(tc.eating_travels, 0) as food,
+                COALESCE(tc.total_travels, 0) as travel
             FROM participants p
-            LEFT JOIN participant_counts pc ON p.participantid = pc.participantid
+            LEFT JOIN venue_counts vc ON p.participantid = vc.participantid
             LEFT JOIN travel_counts tc ON p.participantid = tc.participantid
-            LEFT JOIN social_counts sc ON p.participantid = sc.participantid
-            LEFT JOIN first_last_activity fla ON p.participantid = fla.participantid
             ORDER BY p.participantid
         """)
         
