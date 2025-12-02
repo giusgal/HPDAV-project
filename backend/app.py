@@ -460,18 +460,16 @@ def area_characteristics():
 @app.route('/api/traffic-patterns')
 def traffic_patterns():
     """
-    Parametrized endpoint to identify busiest areas and traffic bottlenecks.
+    Pandemic-style bubble map endpoint - returns aggregated location data.
     
     Parameters:
-    - grid_size: Size of the grid cells (default: 500)
-    - time_period: 'all', 'morning' (6-10), 'midday' (10-14), 'afternoon' (14-18), 'evening' (18-22), 'night' (22-6) (default: 'all')
+    - time_period: 'all', 'morning' (6-12), 'afternoon' (12-18), 'evening' (18-24), 'night' (0-6) (default: 'all')
     - day_type: 'all', 'weekday', 'weekend' (default: 'all')
-    - metric: 'visits', 'unique_visitors', 'avg_duration', 'all' (default: 'all')
+    - sample_rate: Percentage of data to sample (1-100, default: 100)
     """
-    grid_size = request.args.get('grid_size', 500, type=int)
     time_period = request.args.get('time_period', 'all', type=str)
     day_type = request.args.get('day_type', 'all', type=str)
-    metric = request.args.get('metric', 'all', type=str)
+    sample_rate = request.args.get('sample_rate', 100, type=int)
     
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -479,51 +477,78 @@ def traffic_patterns():
     try:
         results = {}
         
-        # Get city bounds from apartments (fast, small table)
-        t0 = time.time()
-        cur.execute("""
-            SELECT 
-                MIN(location[0]) as min_x, MAX(location[0]) as max_x,
-                MIN(location[1]) as min_y, MAX(location[1]) as max_y
-            FROM apartments
-        """)
-        bounds = cur.fetchone()
-        logger.info(f"Bounds query time = {time.time() - t0:.3f}s")
+        # Build time filter clause
+        time_clause = ""
+        if time_period == 'morning':
+            time_clause = "AND EXTRACT(HOUR FROM c.timestamp) >= 6 AND EXTRACT(HOUR FROM c.timestamp) < 12"
+        elif time_period == 'afternoon':
+            time_clause = "AND EXTRACT(HOUR FROM c.timestamp) >= 12 AND EXTRACT(HOUR FROM c.timestamp) < 18"
+        elif time_period == 'evening':
+            time_clause = "AND EXTRACT(HOUR FROM c.timestamp) >= 18 AND EXTRACT(HOUR FROM c.timestamp) < 24"
+        elif time_period == 'night':
+            time_clause = "AND EXTRACT(HOUR FROM c.timestamp) >= 0 AND EXTRACT(HOUR FROM c.timestamp) < 6"
         
-        results['bounds'] = {
-            'min_x': bounds['min_x'],
-            'max_x': bounds['max_x'],
-            'min_y': bounds['min_y'],
-            'max_y': bounds['max_y']
-        }
-        results['grid_size'] = grid_size
+        # Build day filter clause
+        day_clause = ""
+        if day_type == 'weekday':
+            day_clause = "AND EXTRACT(DOW FROM c.timestamp) BETWEEN 1 AND 5"
+        elif day_type == 'weekend':
+            day_clause = "AND EXTRACT(DOW FROM c.timestamp) IN (0, 6)"
+        
+        # Get aggregated location data
+        t0 = time.time()
+        sample_clause = f"AND random() < {sample_rate / 100.0}" if sample_rate < 100 else ""
+        
+        query = f"""
+            WITH venue_locations AS (
+                SELECT restaurantid as venueid, 'Restaurant'::text as venuetype, location[0] as x, location[1] as y FROM restaurants
+                UNION ALL
+                SELECT pubid, 'Pub', location[0], location[1] FROM pubs
+                UNION ALL
+                SELECT apartmentid, 'Apartment', location[0], location[1] FROM apartments
+                UNION ALL
+                SELECT employerid, 'Workplace', location[0], location[1] FROM employers
+                UNION ALL
+                SELECT schoolid, 'School', location[0], location[1] FROM schools
+            )
+            SELECT 
+                v.x,
+                v.y,
+                v.venuetype,
+                COUNT(*) as visits,
+                COUNT(DISTINCT c.participantid) as unique_visitors
+            FROM checkinjournal c
+            JOIN venue_locations v ON c.venueid = v.venueid AND c.venuetype::text = v.venuetype
+            WHERE 1=1 {time_clause} {day_clause} {sample_clause}
+            GROUP BY v.x, v.y, v.venuetype
+            HAVING COUNT(*) > 0
+            ORDER BY visits DESC
+        """
+        
+        cur.execute(query)
+        locations = [dict(row) for row in cur.fetchall()]
+        logger.info(f"Location aggregation completed in {time.time() - t0:.3f}s, locations = {len(locations)}")
+        
+        results['locations'] = locations
         results['time_period'] = time_period
         results['day_type'] = day_type
+        results['sample_rate'] = sample_rate
         
-        # Get pre-aggregated traffic data using SQL (much faster, no memory issues)
-        traffic_data = get_traffic_aggregation_sql(cur, grid_size, time_period, day_type)
-        results['traffic'] = traffic_data
-        
-        # Calculate statistics for bottleneck detection
-        t0 = time.time()
-        if traffic_data:
-            visits = [row['total_visits'] for row in traffic_data]
+        # Calculate statistics
+        if locations:
+            visits = [row['visits'] for row in locations]
             results['statistics'] = {
-                'total_cells': len(traffic_data),
+                'total_locations': len(locations),
                 'total_visits': sum(visits),
                 'max_visits': max(visits),
                 'avg_visits': sum(visits) / len(visits),
-                'median_visits': sorted(visits)[len(visits) // 2],
-                'p90_visits': sorted(visits)[int(len(visits) * 0.9)] if len(visits) >= 10 else max(visits),
-                'p95_visits': sorted(visits)[int(len(visits) * 0.95)] if len(visits) >= 20 else max(visits)
+                'p90_visits': sorted(visits)[int(len(visits) * 0.9)] if len(visits) >= 10 else max(visits)
             }
         
-        # Get cached hourly pattern
-        if metric in ['hourly', 'all']:
-            results['hourly_pattern'] = get_hourly_pattern(cur)
+        # Get hourly pattern
+        results['hourly_pattern'] = get_hourly_pattern(cur)
         
-        results['flows'] = []
-        logger.info(f"Statistics computation time = {time.time() - t0:.3f}s")
+        logger.info(f"Total processing time = {time.time() - t0:.3f}s")
         
         cur.close()
         return_db_connection(conn)

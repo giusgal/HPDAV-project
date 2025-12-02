@@ -5,12 +5,8 @@ import { TrafficPatternsChart, HourlyChart } from './TrafficPatternsChart';
 import './TrafficPatterns.css';
 
 const METRICS = [
-  { id: 'total_visits', label: 'Total Visits' },
+  { id: 'visits', label: 'Total Visits' },
   { id: 'unique_visitors', label: 'Unique Visitors' },
-  { id: 'avg_duration', label: 'Avg Duration (min)' },
-  { id: 'work_visits', label: 'Work-Related Visits' },
-  { id: 'restaurant_visits', label: 'Restaurant Visits' },
-  { id: 'pub_visits', label: 'Pub Visits' },
 ];
 
 const TIME_PERIODS = [
@@ -27,60 +23,6 @@ const DAY_TYPES = [
   { id: 'weekend', label: 'Weekends' },
 ];
 
-const MIN_GRID_SIZE = 50;
-const MAX_GRID_SIZE = 1000;
-
-/**
- * Parse a PostgreSQL polygon string into an array of {x, y} points.
- * Format: ((x1,y1),(x2,y2),...)
- */
-function parsePolygon(polygonStr) {
-  if (!polygonStr) return null;
-  try {
-    const cleaned = polygonStr.replace(/^\(\(/, '').replace(/\)\)$/, '');
-    const pointStrings = cleaned.split('),(');
-    return pointStrings.map(pointStr => {
-      const [x, y] = pointStr.replace(/[()]/g, '').split(',').map(Number);
-      return { x, y };
-    });
-  } catch (e) {
-    console.warn('Failed to parse polygon:', polygonStr, e);
-    return null;
-  }
-}
-
-/**
- * Compute bounds from building polygons with padding.
- */
-function computeBoundsFromBuildings(buildings, paddingPercent = 0.05) {
-  if (!buildings || buildings.length === 0) return null;
-  
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  
-  buildings.forEach(b => {
-    const pts = parsePolygon(b.location);
-    if (!pts) return;
-    pts.forEach(p => {
-      if (p.x < minX) minX = p.x;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.y > maxY) maxY = p.y;
-    });
-  });
-  
-  // If no valid points found, return null
-  if (minX === Infinity) return null;
-  
-  const padX = (maxX - minX) * paddingPercent;
-  const padY = (maxY - minY) * paddingPercent;
-  return {
-    min_x: minX - padX,
-    max_x: maxX + padX,
-    min_y: minY - padY,
-    max_y: maxY + padY,
-  };
-}
-
 function TrafficPatterns() {
   const svgRef = useRef(null);
   const hourlyChartRef = useRef(null);
@@ -90,33 +32,16 @@ function TrafficPatterns() {
   const chartRef = useRef(null);
   const hourlyChartInstanceRef = useRef(null);
   
-  const [selectedMetric, setSelectedMetric] = useState('total_visits');
+  const [selectedMetric, setSelectedMetric] = useState('visits');
   const [timePeriod, setTimePeriod] = useState('all');
   const [dayType, setDayType] = useState('all');
-  const [gridSize, setGridSize] = useState(100);
-  const [gridSizeInput, setGridSizeInput] = useState('100');
-  const [debouncedGridSize, setDebouncedGridSize] = useState(100);
   const [showBottlenecks, setShowBottlenecks] = useState(true);
-  const [hoveredCell, setHoveredCell] = useState(null);
-
-  // Debounce grid size changes
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedGridSize(gridSize);
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [gridSize]);
-
-  // Sync gridSizeInput with gridSize (when slider changes)
-  useEffect(() => {
-    setGridSizeInput(String(gridSize));
-  }, [gridSize]);
+  const [hoveredBubble, setHoveredBubble] = useState(null);
 
   // Fetch data
   const { data, loading, error, refetch } = useApi(
     fetchTrafficPatterns,
     { 
-      gridSize: debouncedGridSize, 
       timePeriod, 
       dayType 
     },
@@ -125,8 +50,8 @@ function TrafficPatterns() {
 
   // Refetch when parameters change
   useEffect(() => {
-    refetch({ gridSize: debouncedGridSize, timePeriod, dayType });
-  }, [debouncedGridSize, timePeriod, dayType]);
+    refetch({ timePeriod, dayType });
+  }, [timePeriod, dayType]);
 
   const { data: buildingsData } = useApi(fetchBuildingsMapData, {}, true);
 
@@ -137,29 +62,18 @@ function TrafficPatterns() {
 
   // Process data based on selected metric
   const processedData = useMemo(() => {
-    if (!data || !data.traffic) return null;
+    if (!data || !data.locations) return null;
 
-    const cells = data.traffic.map(cell => {
-      let value;
-      switch (selectedMetric) {
-        case 'total_visits': value = cell.total_visits; break;
-        case 'unique_visitors': value = cell.unique_visitors; break;
-        case 'avg_duration': value = cell.avg_duration || 0; break;
-        case 'work_visits': value = cell.work_visits; break;
-        case 'restaurant_visits': value = cell.restaurant_visits; break;
-        case 'pub_visits': value = cell.pub_visits; break;
-        default: value = cell.total_visits;
-      }
-      
+    const locations = data.locations.map(loc => {
+      const value = selectedMetric === 'visits' ? loc.visits : loc.unique_visitors;
       const isBottleneck = data.statistics && 
-        cell.total_visits >= data.statistics.p90_visits;
+        loc.visits >= data.statistics.p90_visits;
       
-      return { ...cell, value, isBottleneck };
+      return { ...loc, value, isBottleneck };
     });
 
     return {
-      cells,
-      bounds: data.bounds,
+      locations,
       statistics: data.statistics,
       hourlyPattern: data.hourly_pattern,
     };
@@ -167,8 +81,8 @@ function TrafficPatterns() {
 
   // Controller object for D3 chart callbacks
   const chartController = useMemo(() => ({
-    onCellHover: (cellData, event) => {
-      setHoveredCell(cellData);
+    onBubbleHover: (bubbleData, event) => {
+      setHoveredBubble(bubbleData);
       if (tooltipRef.current) {
         d3.select(tooltipRef.current)
           .style('display', 'block')
@@ -176,8 +90,8 @@ function TrafficPatterns() {
           .style('top', `${event.clientY - 10}px`);
       }
     },
-    onCellLeave: () => {
-      setHoveredCell(null);
+    onBubbleLeave: () => {
+      setHoveredBubble(null);
       if (tooltipRef.current) {
         d3.select(tooltipRef.current).style('display', 'none');
       }
@@ -194,15 +108,7 @@ function TrafficPatterns() {
 
   // Update chart when data changes (lazy initialization)
   useEffect(() => {
-    if (!svgRef.current || !processedData?.cells || !buildingsData?.buildings || !data) return;
-    
-    // Skip if data is stale (grid_size doesn't match current debouncedGridSize)
-    // This prevents rendering old data with new grid size during loading
-    if (data.grid_size !== debouncedGridSize) return;
-
-    // Compute bounds from buildings
-    const bounds = computeBoundsFromBuildings(buildingsData.buildings);
-    if (!bounds) return; // Can't render without valid bounds
+    if (!svgRef.current || !processedData?.locations || !buildingsData?.buildings) return;
 
     // Always create a fresh chart instance (handles remount after loading)
     if (chartRef.current) {
@@ -211,18 +117,16 @@ function TrafficPatterns() {
     chartRef.current = new TrafficPatternsChart(svgRef.current, chartController);
     chartRef.current.initialize();
 
-    const { cells, statistics } = processedData;
+    const { locations, statistics } = processedData;
 
     chartRef.current.update({
-      cells,
-      bounds,
-      gridSize: data.grid_size,
+      locations,
       metricConfig: currentMetricConfig,
       showBottlenecks,
       statistics,
       buildingsData,
     });
-  }, [processedData, debouncedGridSize, currentMetricConfig, showBottlenecks, buildingsData, chartController, data]);
+  }, [processedData, currentMetricConfig, showBottlenecks, buildingsData, chartController]);
 
   // Update hourly chart when data changes (lazy initialization)
   useEffect(() => {
@@ -315,49 +219,13 @@ function TrafficPatterns() {
           </select>
         </div>
         <div className="control-group">
-          <label htmlFor="grid-slider">Grid Size:</label>
-          <input
-            type="range"
-            id="grid-slider"
-            min={MIN_GRID_SIZE}
-            max={MAX_GRID_SIZE}
-            step={10}
-            value={gridSize}
-            onChange={(e) => setGridSize(Number(e.target.value))}
-            style={{ width: '150px' }}
-          />
-          <input
-            type="text"
-            id="grid-input"
-            value={gridSizeInput}
-            onChange={(e) => setGridSizeInput(e.target.value)}
-            onBlur={(e) => {
-              const parsed = parseInt(e.target.value, 10);
-              if (!isNaN(parsed)) {
-                const clamped = Math.max(MIN_GRID_SIZE, Math.min(MAX_GRID_SIZE, parsed));
-                setGridSize(clamped);
-                setGridSizeInput(String(clamped));
-              } else {
-                setGridSizeInput(String(gridSize));
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.target.blur();
-              }
-            }}
-            style={{ width: '60px', padding: '4px 8px', border: '1px solid #ddd', borderRadius: '4px' }}
-          />
-          <span style={{ fontSize: '12px', color: '#666' }}>units</span>
-        </div>
-        <div className="control-group">
           <label>
             <input 
               type="checkbox" 
               checked={showBottlenecks} 
               onChange={(e) => setShowBottlenecks(e.target.checked)}
             />
-            {' '}Highlight Bottlenecks (Top 10%)
+            {' '}Highlight Hotspots (Top 10%)
           </label>
         </div>
       </div>
@@ -365,22 +233,18 @@ function TrafficPatterns() {
       <div className="chart-container">
         <svg ref={svgRef}></svg>
         <div ref={tooltipRef} className="tooltip" style={{ display: 'none' }}>
-          {hoveredCell && (
+          {hoveredBubble && (
             <>
-              <strong>Area ({hoveredCell.grid_x}, {hoveredCell.grid_y})</strong>
-              {hoveredCell.isBottleneck && <span className="bottleneck-badge"> ⚠️ Bottleneck</span>}
+              <strong>Location ({hoveredBubble.x.toFixed(0)}, {hoveredBubble.y.toFixed(0)})</strong>
+              {hoveredBubble.isBottleneck && <span className="bottleneck-badge"> 🔥 Hotspot</span>}
               <br />
-              {currentMetricConfig.label}: {formatValue(hoveredCell.value)}
+              Type: {hoveredBubble.venuetype}
               <br />
-              <small>
-                Total: {formatValue(hoveredCell.total_visits)} | 
-                Unique: {formatValue(hoveredCell.unique_visitors)}
-              </small>
+              {currentMetricConfig.label}: {formatValue(hoveredBubble.value)}
               <br />
               <small>
-                Work: {formatValue(hoveredCell.work_visits)} | 
-                Restaurant: {formatValue(hoveredCell.restaurant_visits)} | 
-                Pub: {formatValue(hoveredCell.pub_visits)}
+                Visits: {formatValue(hoveredBubble.visits)} | 
+                Unique: {formatValue(hoveredBubble.unique_visitors)}
               </small>
             </>
           )}
@@ -396,16 +260,16 @@ function TrafficPatterns() {
               <span className="stat-value">{formatValue(processedData.statistics.total_visits)}</span>
             </div>
             <div className="stat-item">
-              <span className="stat-label">Busiest Area:</span>
+              <span className="stat-label">Total Locations:</span>
+              <span className="stat-value">{formatValue(processedData.statistics.total_locations)}</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-label">Busiest Location:</span>
               <span className="stat-value">{formatValue(processedData.statistics.max_visits)} visits</span>
             </div>
             <div className="stat-item">
-              <span className="stat-label">Average per Area:</span>
+              <span className="stat-label">Average per Location:</span>
               <span className="stat-value">{formatValue(Math.round(processedData.statistics.avg_visits))}</span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-label">Bottleneck Threshold (P90):</span>
-              <span className="stat-value">{formatValue(processedData.statistics.p90_visits)} visits</span>
             </div>
           </div>
         </div>
@@ -422,21 +286,20 @@ function TrafficPatterns() {
       </div>
 
       <div className="info-panel">
-        <h3>Identifying Busiest Areas &amp; Traffic Bottlenecks</h3>
+        <h3>Pandemic-Style Bubble Map</h3>
         <p>
-          This visualization shows traffic patterns across Engagement city. Areas with 
-          higher visit counts are shown in warmer colors (yellow to red). 
-          <strong>Bottlenecks</strong> (areas in the top 10% of traffic) are highlighted 
-          with red borders and dashed circles.
+          This visualization shows traffic patterns across Engagement city using a pandemic-style 
+          bubble map. Each bubble represents a specific location (venue), with <strong>size 
+          proportional to activity level</strong> and color indicating intensity. 
         </p>
         <p>
-          <strong>Key insights to look for:</strong>
+          <strong>How to read this map:</strong>
         </p>
         <ul>
-          <li><strong>Busiest areas:</strong> Red/orange cells indicate high traffic zones</li>
-          <li><strong>Bottlenecks:</strong> Areas with disproportionately high traffic that may cause congestion</li>
-          <li><strong>Time patterns:</strong> Use filters to see how traffic varies by time of day</li>
-          <li><strong>Activity types:</strong> Switch metrics to see workplace vs recreational traffic</li>
+          <li><strong>Bubble size:</strong> Larger bubbles = more traffic at that location</li>
+          <li><strong>Color:</strong> Darker/warmer colors = higher activity intensity</li>
+          <li><strong>Hotspots (🔥):</strong> Locations in the top 10% of traffic (red borders)</li>
+          <li><strong>Venue types:</strong> Different types of locations are aggregated by their exact coordinates</li>
         </ul>
       </div>
     </div>

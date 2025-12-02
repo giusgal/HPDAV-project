@@ -68,6 +68,14 @@
   display: block;
 }
 
+.traffic-patterns .chart-container svg circle.bubble {
+  transition: opacity 0.2s ease;
+}
+
+.traffic-patterns .chart-container svg circle.bubble:hover {
+  opacity: 0.95 !important;
+}
+
 /* Tooltip */
 .traffic-patterns .tooltip {
   position: fixed;

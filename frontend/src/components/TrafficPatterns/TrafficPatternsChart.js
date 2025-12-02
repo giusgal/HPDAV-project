@@ -1,20 +1,63 @@
 /**
- * TrafficPatternsChart - D3 Visualization Class
+ * TrafficPatternsChart - D3 Pandemic-Style Bubble Map
  * 
- * Renders a heatmap of traffic patterns with building polygons as basemap.
+ * Renders bubbles at exact location coordinates with size based on activity.
  */
 
 import * as d3 from 'd3';
 
+/**
+ * Parse PostgreSQL polygon string to array of points.
+ */
+function parsePolygon(polygonStr) {
+  if (!polygonStr) return null;
+  try {
+    const cleaned = polygonStr.replace(/^\(\(/, '').replace(/\)\)$/, '');
+    const pointStrings = cleaned.split('),(');
+    return pointStrings.map(pointStr => {
+      const [x, y] = pointStr.replace(/[()]/g, '').split(',').map(Number);
+      return { x, y };
+    });
+  } catch (e) {
+    console.warn('Failed to parse polygon:', polygonStr, e);
+    return null;
+  }
+}
+
+/**
+ * Compute bounds from building polygons with padding.
+ */
+function computeBoundsFromBuildings(buildings, paddingPercent = 0.05) {
+  if (!buildings || buildings.length === 0) return null;
+  
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  
+  buildings.forEach(b => {
+    const pts = parsePolygon(b.location);
+    if (!pts) return;
+    pts.forEach(p => {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    });
+  });
+  
+  if (minX === Infinity) return null;
+  
+  const padX = (maxX - minX) * paddingPercent;
+  const padY = (maxY - minY) * paddingPercent;
+  return {
+    min_x: minX - padX,
+    max_x: maxX + padX,
+    min_y: minY - padY,
+    max_y: maxY + padY,
+  };
+}
+
 class TrafficPatternsChart {
   /**
-   * Create a new chart instance.
-   * @param {HTMLElement} container - The SVG container element
-   * @param {Object} controller - Callbacks to React for interactivity
-   * @param {Function} controller.onCellHover - Called with cell data on hover
-   * @param {Function} controller.onCellLeave - Called when mouse leaves cell
-   * @param {Function} controller.onMouseMove - Called on mouse move for tooltip positioning
-   * @param {Function} controller.getTooltipRef - Returns the tooltip DOM element
+   * Create a new pandemic map chart instance.
    */
   constructor(container, controller) {
     this.container = container;
@@ -29,7 +72,6 @@ class TrafficPatternsChart {
 
   /**
    * Initialize the SVG structure.
-   * Called once when the component mounts.
    */
   initialize() {
     this.svg = d3.select(this.container);
@@ -37,51 +79,40 @@ class TrafficPatternsChart {
     
     this.svg
       .attr('width', '100%')
-      .attr('height', 500);
+      .attr('height', 600);
     
-    // Create defs for gradients and clip paths
     this.defs = this.svg.append('defs');
     
-    // Create main group for chart content
     this.g = this.svg.append('g')
       .attr('class', 'chart-content')
       .attr('transform', `translate(${this.margin.left},${this.margin.top})`);
     
-    // Create groups for layered rendering
     this.baseMapGroup = this.g.append('g').attr('class', 'basemap-layer');
-    this.cellsGroup = this.g.append('g').attr('class', 'cells-layer');
-    this.bottleneckGroup = this.g.append('g').attr('class', 'bottleneck-layer');
+    this.bubblesGroup = this.g.append('g').attr('class', 'bubbles-layer');
+    this.hotspotGroup = this.g.append('g').attr('class', 'hotspot-layer');
     this.axesGroup = this.g.append('g').attr('class', 'axes-layer');
     this.legendGroup = this.svg.append('g').attr('class', 'legend-layer');
   }
 
   /**
    * Update the chart with new data.
-   * 
-   * @param {Object} params - Update parameters
-   * @param {Array} params.cells - Array of cell data objects
-   * @param {Object} params.bounds - { min_x, max_x, min_y, max_y }
-   * @param {number} params.gridSize - Size of each grid cell
-   * @param {Object} params.metricConfig - { label, id } for the current metric
-   * @param {boolean} params.showBottlenecks - Whether to highlight bottleneck cells
-   * @param {Object} params.statistics - Statistics for bottleneck calculation
-   * @param {Object} params.buildingsData - Building polygon data
    */
-  update({ cells, bounds, gridSize, metricConfig, showBottlenecks, statistics, buildingsData }) {
-    if (!cells || !bounds || cells.length === 0) return;
+  update({ locations, metricConfig, showBottlenecks, statistics, buildingsData }) {
+    if (!locations || locations.length === 0 || !buildingsData?.buildings) return;
+
+    const bounds = computeBoundsFromBuildings(buildingsData.buildings);
+    if (!bounds) return;
 
     // Calculate dimensions
     const containerElement = this.container.parentElement;
-    let containerWidth = containerElement ? containerElement.clientWidth : 0;
+    let containerWidth = containerElement ? containerElement.clientWidth : 800;
     
     if (containerWidth === 0 && containerElement) {
       const rect = containerElement.getBoundingClientRect();
       containerWidth = rect.width;
     }
     
-    if (containerWidth === 0) {
-      containerWidth = 800;
-    }
+    if (containerWidth === 0) containerWidth = 800;
     
     const dataWidth = bounds.max_x - bounds.min_x;
     const dataHeight = bounds.max_y - bounds.min_y;
@@ -98,7 +129,6 @@ class TrafficPatternsChart {
       innerHeight 
     };
 
-    // Update SVG size
     this.svg
       .attr('width', containerWidth)
       .attr('height', height);
@@ -112,25 +142,29 @@ class TrafficPatternsChart {
       .domain([bounds.min_y, bounds.max_y])
       .range([innerHeight, 0]);
 
-    // Color scale based on values
-    const values = cells.map(c => c.value);
-    this.scales.color = d3.scaleSequential(d3.interpolateYlOrRd)
-      .domain([0, d3.max(values)]);
+    // Radius scale - sqrt for better visual perception
+    const maxValue = d3.max(locations, d => d.value);
+    this.scales.radius = d3.scaleSqrt()
+      .domain([0, maxValue])
+      .range([3, 40]);
 
-    // Store current options for event handlers
+    // Color scale
+    this.scales.color = d3.scaleSequential(d3.interpolateYlOrRd)
+      .domain([0, maxValue]);
+
     this.currentOptions = { showBottlenecks, statistics };
 
     // Render layers
     this.renderClipPath(innerWidth, innerHeight);
     this.renderBaseMap(buildingsData, innerWidth, innerHeight);
-    this.renderCells(cells, gridSize, showBottlenecks);
-    this.renderBottleneckMarkers(cells, gridSize, showBottlenecks, statistics);
+    this.renderBubbles(locations, showBottlenecks);
+    this.renderHotspotMarkers(locations, showBottlenecks, statistics);
     this.renderAxes(innerWidth, innerHeight);
     this.renderLegend(metricConfig, innerHeight, containerWidth);
   }
 
   /**
-   * Create clip path to prevent cells from overflowing.
+   * Create clip path.
    */
   renderClipPath(width, height) {
     this.defs.select('#traffic-clip').remove();
@@ -144,27 +178,8 @@ class TrafficPatternsChart {
       .attr('height', height);
     
     this.baseMapGroup.attr('clip-path', 'url(#traffic-clip)');
-    this.cellsGroup.attr('clip-path', 'url(#traffic-clip)');
-    this.bottleneckGroup.attr('clip-path', 'url(#traffic-clip)');
-  }
-
-  /**
-   * Parse PostgreSQL polygon string to array of points.
-   * Format: ((x1,y1),(x2,y2),...)
-   */
-  parsePolygon(polygonStr) {
-    if (!polygonStr) return null;
-    try {
-      const cleaned = polygonStr.replace(/^\(\(/, '').replace(/\)\)$/, '');
-      const pointStrings = cleaned.split('),(');
-      return pointStrings.map(pointStr => {
-        const [x, y] = pointStr.replace(/[()]/g, '').split(',').map(Number);
-        return { x, y };
-      });
-    } catch (e) {
-      console.warn('Failed to parse polygon:', polygonStr, e);
-      return null;
-    }
+    this.bubblesGroup.attr('clip-path', 'url(#traffic-clip)');
+    this.hotspotGroup.attr('clip-path', 'url(#traffic-clip)');
   }
 
   /**
@@ -183,7 +198,7 @@ class TrafficPatternsChart {
       .curve(d3.curveLinearClosed);
 
     const buildingsWithPaths = buildingsData.buildings
-      .map(b => ({ ...b, points: this.parsePolygon(b.location) }))
+      .map(b => ({ ...b, points: parsePolygon(b.location) }))
       .filter(b => b.points && b.points.length >= 3);
 
     this.baseMapGroup.selectAll('path.building')
@@ -193,83 +208,80 @@ class TrafficPatternsChart {
       .attr('d', d => lineGenerator(d.points))
       .attr('fill', d => {
         switch (d.buildingtype) {
-          case 'Commercial': return 'rgba(52, 152, 219, 0.3)';
+          case 'Commercial': return 'rgba(52, 152, 219, 0.2)';
           case 'Residential':
-          case 'Residental': return 'rgba(46, 204, 113, 0.3)';
-          case 'School': return 'rgba(155, 89, 182, 0.3)';
-          default: return 'rgba(100, 100, 100, 0.3)';
+          case 'Residental': return 'rgba(46, 204, 113, 0.2)';
+          case 'School': return 'rgba(155, 89, 182, 0.2)';
+          default: return 'rgba(100, 100, 100, 0.2)';
         }
       })
-      .attr('stroke', '#333')
+      .attr('stroke', '#999')
       .attr('stroke-width', 0.5)
-      .attr('opacity', 0.6);
+      .attr('opacity', 0.5);
   }
 
   /**
-   * Render grid cells using D3 data binding.
+   * Render bubbles at exact locations.
    */
-  renderCells(cells, gridSize, showBottlenecks) {
-    const { x: xScale, y: yScale, color: colorScale } = this.scales;
-    const cellWidth = Math.abs(xScale(gridSize) - xScale(0));
-    const cellHeight = Math.abs(yScale(0) - yScale(gridSize));
+  renderBubbles(locations, showBottlenecks) {
+    const { x: xScale, y: yScale, radius: radiusScale, color: colorScale } = this.scales;
 
-    // Clear all existing cells and redraw
-    this.cellsGroup.selectAll('rect.cell').remove();
+    this.bubblesGroup.selectAll('circle.bubble').remove();
 
-    this.cellsGroup.selectAll('rect.cell')
-      .data(cells)
-      .join('rect')
-      .attr('class', 'cell')
-      .attr('x', d => xScale(Number(d.grid_x) * gridSize))
-      .attr('y', d => yScale((Number(d.grid_y) + 1) * gridSize))
-      .attr('width', cellWidth)
-      .attr('height', cellHeight)
+    this.bubblesGroup.selectAll('circle.bubble')
+      .data(locations)
+      .join('circle')
+      .attr('class', 'bubble')
+      .attr('cx', d => xScale(d.x))
+      .attr('cy', d => yScale(d.y))
+      .attr('r', d => radiusScale(d.value))
       .attr('fill', d => colorScale(d.value))
       .attr('opacity', 0.7)
-      .attr('stroke', d => (showBottlenecks && d.isBottleneck) ? '#ff0000' : '#fff')
-      .attr('stroke-width', d => (showBottlenecks && d.isBottleneck) ? 2 : 0.5)
+      .attr('stroke', d => (showBottlenecks && d.isBottleneck) ? '#ff0000' : '#666')
+      .attr('stroke-width', d => (showBottlenecks && d.isBottleneck) ? 2.5 : 0.8)
       .style('cursor', 'pointer')
-      .call(this.bindCellEvents.bind(this));
+      .call(this.bindBubbleEvents.bind(this));
   }
 
   /**
-   * Render bottleneck markers for cells in top 10%.
+   * Render hotspot markers.
    */
-  renderBottleneckMarkers(cells, gridSize, showBottlenecks, statistics) {
-    this.bottleneckGroup.selectAll('*').remove();
+  renderHotspotMarkers(locations, showBottlenecks, statistics) {
+    this.hotspotGroup.selectAll('*').remove();
     
     if (!showBottlenecks || !statistics) return;
 
-    const { x: xScale, y: yScale } = this.scales;
-    const bottlenecks = cells.filter(c => c.isBottleneck);
+    const { x: xScale, y: yScale, radius: radiusScale } = this.scales;
+    const hotspots = locations.filter(d => d.isBottleneck);
 
-    this.bottleneckGroup.selectAll('circle.bottleneck-marker')
-      .data(bottlenecks)
+    this.hotspotGroup.selectAll('circle.hotspot-marker')
+      .data(hotspots)
       .join('circle')
-      .attr('class', 'bottleneck-marker')
-      // Center of cell: (grid_x + 0.5) * gridSize, (grid_y + 0.5) * gridSize
-      .attr('cx', d => xScale((d.grid_x + 0.5) * gridSize))
-      .attr('cy', d => yScale((d.grid_y + 0.5) * gridSize))
-      .attr('r', 8)
+      .attr('class', 'hotspot-marker')
+      .attr('cx', d => xScale(d.x))
+      .attr('cy', d => yScale(d.y))
+      .attr('r', d => radiusScale(d.value) + 6)
       .attr('fill', 'none')
       .attr('stroke', '#ff0000')
-      .attr('stroke-width', 2)
-      .attr('stroke-dasharray', '4,2');
+      .attr('stroke-width', 2.5)
+      .attr('stroke-dasharray', '5,3')
+      .attr('opacity', 0.8);
   }
 
   /**
-   * Bind mouse events to cells.
+   * Bind mouse events to bubbles.
    */
-  bindCellEvents(selection) {
+  bindBubbleEvents(selection) {
     const self = this;
     
     selection
       .on('mouseover', function(event, d) {
         d3.select(this)
           .attr('stroke', '#000')
-          .attr('stroke-width', 2);
+          .attr('stroke-width', 2.5)
+          .attr('opacity', 0.95);
         
-        self.controller.onCellHover(d, event);
+        self.controller.onBubbleHover(d, event);
       })
       .on('mousemove', function(event) {
         self.controller.onMouseMove(event);
@@ -277,10 +289,11 @@ class TrafficPatternsChart {
       .on('mouseout', function(event, d) {
         const { showBottlenecks } = self.currentOptions || {};
         d3.select(this)
-          .attr('stroke', (showBottlenecks && d.isBottleneck) ? '#ff0000' : '#fff')
-          .attr('stroke-width', (showBottlenecks && d.isBottleneck) ? 2 : 0.5);
+          .attr('stroke', (showBottlenecks && d.isBottleneck) ? '#ff0000' : '#666')
+          .attr('stroke-width', (showBottlenecks && d.isBottleneck) ? 2.5 : 0.8)
+          .attr('opacity', 0.7);
         
-        self.controller.onCellLeave();
+        self.controller.onBubbleLeave();
       });
   }
 
@@ -327,8 +340,7 @@ class TrafficPatternsChart {
     this.legendGroup.attr('transform', 
       `translate(${containerWidth - this.margin.right + 20},${this.margin.top})`);
 
-    // Create gradient
-    const gradientId = 'traffic-gradient';
+    const gradientId = 'pandemic-gradient';
     this.defs.select(`#${gradientId}`).remove();
     
     const gradient = this.defs.append('linearGradient')
@@ -355,7 +367,7 @@ class TrafficPatternsChart {
 
     this.legendGroup.append('g')
       .attr('transform', `translate(${legendWidth},0)`)
-      .call(d3.axisRight(legendScale).ticks(5));
+      .call(d3.axisRight(legendScale).ticks(5).tickFormat(d3.format('.0f')));
 
     this.legendGroup.append('text')
       .attr('transform', 'rotate(-90)')

@@ -39,27 +39,24 @@ export const fetchAreaCharacteristics = async (params = {}) => {
 };
 
 /**
- * Fetch traffic patterns data.
+ * Fetch traffic patterns data (pandemic-style bubble map).
  * @param {Object} params - Query parameters
- * @param {number} params.gridSize - Size of grid cells (default: 500)
  * @param {string} params.timePeriod - Time period filter (default: 'all')
  * @param {string} params.dayType - Day type filter (default: 'all')
- * @param {string} params.metric - Metric to fetch (default: 'all')
+ * @param {number} params.sampleRate - Sample rate percentage (default: 100)
  * @returns {Promise<Object>} Traffic patterns data
  */
 export const fetchTrafficPatterns = async (params = {}) => {
   const { 
-    gridSize = 500, 
     timePeriod = 'all', 
     dayType = 'all',
-    metric = 'all' 
+    sampleRate = 100
   } = params;
   const response = await apiClient.get('/api/traffic-patterns', {
     params: { 
-      grid_size: gridSize, 
       time_period: timePeriod,
       day_type: dayType,
-      metric 
+      sample_rate: sampleRate
     }
   });
   return response.data;
