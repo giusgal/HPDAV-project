@@ -104,7 +104,17 @@ function AreaCharacteristics() {
   const { data, loading, error, refetch } = useApi(fetchAreaCharacteristics, { gridSize: debouncedGridSize }, true);
   const { data: buildingsData } = useApi(fetchBuildingsMapData, {}, true);
 
+  // Track if initial load is complete
+  const initialLoadComplete = useRef(false);
+  
+  // Refetch when grid size changes (but skip initial load)
   useEffect(() => {
+    // Skip the first render - the useApi hook already fetched on mount
+    if (!initialLoadComplete.current) {
+      initialLoadComplete.current = true;
+      return;
+    }
+    
     refetch({ gridSize: debouncedGridSize });
   }, [debouncedGridSize]);
 
@@ -124,11 +134,11 @@ function AreaCharacteristics() {
       dataMap.set(key, cell);
     });
 
-    // Get all grid cells with values
+    // Get all grid cells with values - filter out null and 0 values
     const cells = categoryData.map(cell => ({
       ...cell,
       value: cell[currentMetricConfig.key]
-    })).filter(cell => cell.value != null);
+    })).filter(cell => cell.value != null && cell.value !== 0);
 
     return { cells, dataMap, bounds: data.bounds };
   }, [data, currentMetricConfig]);
@@ -445,6 +455,7 @@ function AreaCharacteristics() {
           />
           <span style={{ fontSize: '12px', color: '#666', minWidth: '35px' }}>{(opacity * 100).toFixed(0)}%</span>
         </div>
+        {loading && <span className="loading-indicator">Loading...</span>}
       </div>
       
       <div className="chart-container">
@@ -468,7 +479,7 @@ function AreaCharacteristics() {
         <p>
           This heatmap shows the city divided into grid cells, with each cell colored 
           according to the selected metric. The data represents characteristics of 
-          participants (volunteers) living in each area, assuming they are representative 
+          participants (volunteers) living in each area, aggregated over the entire 15-month period.
           of the city's population.
         </p>
         <p>

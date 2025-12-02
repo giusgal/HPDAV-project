@@ -269,6 +269,8 @@ def area_characteristics():
     Parameters:
     - grid_size: Size of the grid cells (default: 500)
     - metric: What to aggregate - 'demographics', 'financial', 'venues', 'apartments', 'all' (default: 'all')
+    
+    All metrics are aggregated over the entire 15-month period.
     """
     grid_size = request.args.get('grid_size', 500, type=int)
     metric = request.args.get('metric', 'all', type=str)
@@ -350,7 +352,7 @@ def area_characteristics():
                 gy = int(p['y'] // grid_size)
                 participant_grid[p['participantid']] = (gx, gy)
             
-            # Get financial data aggregated by participant (fast - only 1.8M rows)
+            # Get financial data aggregated by participant over entire period
             q0 = time.time()
             cur.execute("""
                 SELECT 

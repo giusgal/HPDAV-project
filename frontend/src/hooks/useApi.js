@@ -21,6 +21,7 @@ const apiClient = axios.create({
 
 /**
  * Fetch area characteristics data for the heatmap visualization.
+ * All metrics are aggregated over the entire 15-month period.
  * @param {Object} params - Query parameters
  * @param {number} params.gridSize - Size of grid cells (default: 500)
  * @param {string} params.metric - Metric to fetch (default: 'all')
@@ -29,7 +30,10 @@ const apiClient = axios.create({
 export const fetchAreaCharacteristics = async (params = {}) => {
   const { gridSize = 500, metric = 'all' } = params;
   const response = await apiClient.get('/api/area-characteristics', {
-    params: { grid_size: gridSize, metric }
+    params: { 
+      grid_size: gridSize, 
+      metric
+    }
   });
   return response.data;
 };
