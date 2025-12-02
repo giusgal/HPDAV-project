@@ -54,6 +54,19 @@
   cursor: pointer;
 }
 
+.traffic-patterns .control-group input[type="date"] {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.traffic-patterns .control-group input[type="date"]:hover {
+  border-color: #aaa;
+}
+
 /* Chart Container */
 .traffic-patterns .chart-container {
   position: relative;

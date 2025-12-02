@@ -466,10 +466,14 @@ def traffic_patterns():
     - time_period: 'all', 'morning' (6-12), 'afternoon' (12-18), 'evening' (18-24), 'night' (0-6) (default: 'all')
     - day_type: 'all', 'weekday', 'weekend' (default: 'all')
     - sample_rate: Percentage of data to sample (1-100, default: 100)
+    - start_date: Start date for filtering (YYYY-MM-DD, optional)
+    - end_date: End date for filtering (YYYY-MM-DD, optional)
     """
     time_period = request.args.get('time_period', 'all', type=str)
     day_type = request.args.get('day_type', 'all', type=str)
     sample_rate = request.args.get('sample_rate', 100, type=int)
+    start_date = request.args.get('start_date', None, type=str)
+    end_date = request.args.get('end_date', None, type=str)
     
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -495,6 +499,13 @@ def traffic_patterns():
         elif day_type == 'weekend':
             day_clause = "AND EXTRACT(DOW FROM c.timestamp) IN (0, 6)"
         
+        # Build date range filter clause
+        date_clause = ""
+        if start_date:
+            date_clause += f" AND c.timestamp >= '{start_date}'::date"
+        if end_date:
+            date_clause += f" AND c.timestamp < '{end_date}'::date + interval '1 day'"
+        
         # Get aggregated location data
         t0 = time.time()
         sample_clause = f"AND random() < {sample_rate / 100.0}" if sample_rate < 100 else ""
@@ -519,7 +530,7 @@ def traffic_patterns():
                 COUNT(DISTINCT c.participantid) as unique_visitors
             FROM checkinjournal c
             JOIN venue_locations v ON c.venueid = v.venueid AND c.venuetype::text = v.venuetype
-            WHERE 1=1 {time_clause} {day_clause} {sample_clause}
+            WHERE 1=1 {time_clause} {day_clause} {date_clause} {sample_clause}
             GROUP BY v.x, v.y, v.venuetype
             HAVING COUNT(*) > 0
             ORDER BY visits DESC
@@ -533,6 +544,21 @@ def traffic_patterns():
         results['time_period'] = time_period
         results['day_type'] = day_type
         results['sample_rate'] = sample_rate
+        results['start_date'] = start_date
+        results['end_date'] = end_date
+        
+        # Get available date range
+        cur.execute("""
+            SELECT 
+                MIN(timestamp::date) as min_date,
+                MAX(timestamp::date) as max_date
+            FROM checkinjournal
+        """)
+        date_range = cur.fetchone()
+        results['available_dates'] = {
+            'min': str(date_range['min_date']) if date_range['min_date'] else None,
+            'max': str(date_range['max_date']) if date_range['max_date'] else None
+        }
         
         # Calculate statistics
         if locations:

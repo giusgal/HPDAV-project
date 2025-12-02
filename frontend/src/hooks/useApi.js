@@ -44,20 +44,28 @@ export const fetchAreaCharacteristics = async (params = {}) => {
  * @param {string} params.timePeriod - Time period filter (default: 'all')
  * @param {string} params.dayType - Day type filter (default: 'all')
  * @param {number} params.sampleRate - Sample rate percentage (default: 100)
+ * @param {string} params.startDate - Start date (YYYY-MM-DD, optional)
+ * @param {string} params.endDate - End date (YYYY-MM-DD, optional)
  * @returns {Promise<Object>} Traffic patterns data
  */
 export const fetchTrafficPatterns = async (params = {}) => {
   const { 
     timePeriod = 'all', 
     dayType = 'all',
-    sampleRate = 100
+    sampleRate = 100,
+    startDate,
+    endDate
   } = params;
+  const apiParams = { 
+    time_period: timePeriod,
+    day_type: dayType,
+    sample_rate: sampleRate
+  };
+  if (startDate) apiParams.start_date = startDate;
+  if (endDate) apiParams.end_date = endDate;
+  
   const response = await apiClient.get('/api/traffic-patterns', {
-    params: { 
-      time_period: timePeriod,
-      day_type: dayType,
-      sample_rate: sampleRate
-    }
+    params: apiParams
   });
   return response.data;
 };

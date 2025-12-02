@@ -35,6 +35,8 @@ function TrafficPatterns() {
   const [selectedMetric, setSelectedMetric] = useState('visits');
   const [timePeriod, setTimePeriod] = useState('all');
   const [dayType, setDayType] = useState('all');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [hoveredBubble, setHoveredBubble] = useState(null);
 
   // Fetch data
@@ -42,15 +44,17 @@ function TrafficPatterns() {
     fetchTrafficPatterns,
     { 
       timePeriod, 
-      dayType 
+      dayType,
+      startDate,
+      endDate
     },
     true
   );
 
   // Refetch when parameters change
   useEffect(() => {
-    refetch({ timePeriod, dayType });
-  }, [timePeriod, dayType]);
+    refetch({ timePeriod, dayType, startDate, endDate });
+  }, [timePeriod, dayType, startDate, endDate]);
 
   const { data: buildingsData } = useApi(fetchBuildingsMapData, {}, true);
 
@@ -212,7 +216,40 @@ function TrafficPatterns() {
             ))}
           </select>
         </div>
+        <div className="control-group">
+          <label htmlFor="start-date">Start Date:</label>
+          <input
+            type="date"
+            id="start-date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            min={data?.available_dates?.min}
+            max={data?.available_dates?.max}
+          />
+        </div>
+        <div className="control-group">
+          <label htmlFor="end-date">End Date:</label>
+          <input
+            type="date"
+            id="end-date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            min={data?.available_dates?.min}
+            max={data?.available_dates?.max}
+          />
+        </div>
       </div>
+      
+      {data?.available_dates && (
+        <div style={{ textAlign: 'center', color: '#666', fontSize: '14px', marginBottom: '15px', padding: '10px', background: '#e8f4f8', borderRadius: '4px' }}>
+          Available data: <strong>{data.available_dates.min}</strong> to <strong>{data.available_dates.max}</strong>
+          {startDate && endDate && (
+            <span style={{ marginLeft: '20px' }}>
+              | Showing: <strong>{startDate}</strong> to <strong>{endDate}</strong>
+            </span>
+          )}
+        </div>
+      )}
       
       <div className="chart-container">
         <svg ref={svgRef}></svg>
