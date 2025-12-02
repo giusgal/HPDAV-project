@@ -236,7 +236,7 @@ function AreaCharacteristics() {
     }
 
     const values = cells.map(c => c.value);
-    const colorScale = d3.scaleSequential(d3.interpolateViridis)
+    const colorScale = d3.scaleSequential(d3.interpolateYlOrRd)
       .domain([d3.min(values), d3.max(values)]);
 
     // Calculate cell dimensions in pixels

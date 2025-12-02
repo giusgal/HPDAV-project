@@ -548,17 +548,39 @@ def participant_routines():
     Parameters:
     - participant_ids: Comma-separated participant IDs (e.g., "1,2" or "1")
     - date: Specific date to show (YYYY-MM-DD) or 'typical' for aggregated pattern (default: 'typical')
+    - month: Filter by month number 1-6 (June-November) or 'all' (default: 'all')
     """
     global _participants_cache
     
     participant_ids_str = request.args.get('participant_ids', '', type=str)
     date_param = request.args.get('date', 'typical', type=str)
+    month_param = request.args.get('month', 'all', type=str)
     
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     
     try:
         results = {}
+        
+        # Get available months from the data
+        t0 = time.time()
+        cur.execute("""
+            SELECT DISTINCT 
+                EXTRACT(YEAR FROM timestamp)::int as year,
+                EXTRACT(MONTH FROM timestamp)::int as month
+            FROM checkinjournal
+            ORDER BY year, month
+        """)
+        month_data = cur.fetchall()
+        available_months = []
+        for row in month_data:
+            available_months.append({
+                'year': row['year'],
+                'month': row['month'],
+                'label': f"{['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][row['month']]} {row['year']}"
+            })
+        results['available_months'] = available_months
+        logger.info(f"Available months query time = {time.time() - t0:.3f}s")
         
         # Get list of all participants with their characteristics (cached)
         t0 = time.time()
@@ -587,7 +609,17 @@ def participant_routines():
         if not participant_ids_str:
             # Return summary based on checkinjournal (much faster than participantstatuslogs)
             t0 = time.time()
-            cur.execute("""
+            
+            # Build month filter (format: YYYY-MM)
+            month_filter = ""
+            if month_param != 'all':
+                try:
+                    year, month = month_param.split('-')
+                    month_filter = f"WHERE EXTRACT(YEAR FROM timestamp) = {year} AND EXTRACT(MONTH FROM timestamp) = {month}"
+                except (ValueError, AttributeError):
+                    pass
+            
+            cur.execute(f"""
                 WITH participant_checkins AS (
                     SELECT 
                         participantid,
@@ -598,6 +630,7 @@ def participant_routines():
                         COUNT(*) FILTER (WHERE venuetype = 'Pub') as pub_checkins,
                         COUNT(DISTINCT DATE(timestamp)) as days_tracked
                     FROM checkinjournal
+                    {month_filter}
                     GROUP BY participantid
                 )
                 SELECT 
@@ -637,17 +670,27 @@ def participant_routines():
             # Get participant info
             participant_info = next((p for p in _participants_cache if p['participantid'] == pid), None)
             
+            # Build month filter (format: YYYY-MM)
+            month_filter = ""
+            query_params = [pid]
+            if month_param != 'all':
+                try:
+                    year, month = month_param.split('-')
+                    month_filter = f"AND EXTRACT(YEAR FROM timestamp) = {year} AND EXTRACT(MONTH FROM timestamp) = {month}"
+                except (ValueError, AttributeError):
+                    pass
+            
             # Use checkinjournal for typical pattern (much faster than participantstatuslogs)
-            cur.execute("""
+            cur.execute(f"""
                 SELECT 
                     EXTRACT(HOUR FROM timestamp)::int as hour,
                     venuetype::text as activity,
                     COUNT(*) as count
                 FROM checkinjournal
-                WHERE participantid = %s
+                WHERE participantid = %s {month_filter}
                 GROUP BY EXTRACT(HOUR FROM timestamp), venuetype
                 ORDER BY hour, count DESC
-            """, (pid,))
+            """, tuple(query_params))
             hourly_data = cur.fetchall()
             
             # Convert to timeline format
@@ -706,25 +749,34 @@ def participant_routines():
         
         # Get checkin data for these participants (venue visits)
         for pid in participant_ids:
+            # Build month filter (format: YYYY-MM)
+            month_filter = ""
+            if month_param != 'all':
+                try:
+                    year, month = month_param.split('-')
+                    month_filter = f"AND EXTRACT(YEAR FROM timestamp) = {year} AND EXTRACT(MONTH FROM timestamp) = {month}"
+                except (ValueError, AttributeError):
+                    pass
+            
             if date_param == 'typical':
-                cur.execute("""
+                cur.execute(f"""
                     SELECT 
                         EXTRACT(HOUR FROM timestamp)::int as hour,
                         venuetype::text as venue_type,
                         COUNT(*) as visit_count
                     FROM checkinjournal
-                    WHERE participantid = %s
+                    WHERE participantid = %s {month_filter}
                     GROUP BY EXTRACT(HOUR FROM timestamp), venuetype
                     ORDER BY hour
                 """, (pid,))
             else:
-                cur.execute("""
+                cur.execute(f"""
                     SELECT 
                         EXTRACT(HOUR FROM timestamp)::int as hour,
                         venuetype::text as venue_type,
                         COUNT(*) as visit_count
                     FROM checkinjournal
-                    WHERE participantid = %s AND DATE(timestamp) = %s
+                    WHERE participantid = %s AND DATE(timestamp) = %s {month_filter}
                     GROUP BY EXTRACT(HOUR FROM timestamp), venuetype
                     ORDER BY hour
                 """, (pid, date_param))

@@ -66,7 +66,7 @@ class DailyRoutinesChart {
     
     const containerWidth = this.container.clientWidth;
     const width = containerWidth;
-    const height = this.margin.top + this.margin.bottom + (participantIds.length * this.rowHeight * 2);
+    const height = this.margin.top + this.margin.bottom + (participantIds.length * this.rowHeight);
     const innerWidth = width - this.margin.left - this.margin.right;
 
     // Clear and recreate SVG
@@ -136,7 +136,7 @@ class DailyRoutinesChart {
 
     participantIds.forEach((pid, idx) => {
       const routine = routines[pid];
-      const y = idx * this.rowHeight * 2 + 20;
+      const y = idx * this.rowHeight + 20;
       
       // Participant label
       const participant = routine.participant;
@@ -184,42 +184,6 @@ class DailyRoutinesChart {
             self.controller.onActivityLeave();
           });
       });
-
-      // Checkin markers
-      if (routine.checkins && routine.checkins.length > 0) {
-        const checkinY = y + this.rowHeight;
-        
-        this.g.append('text')
-          .attr('x', -10)
-          .attr('y', checkinY + 10)
-          .attr('text-anchor', 'end')
-          .attr('font-size', '10px')
-          .attr('fill', '#666')
-          .text('Venue visits:');
-
-        routine.checkins.forEach(checkin => {
-          const venueColor = checkin.venue_type === 'Restaurant' ? '#E91E63' :
-                            checkin.venue_type === 'Pub' ? '#FF5722' :
-                            checkin.venue_type === 'Workplace' ? '#2196F3' : '#9E9E9E';
-          
-          this.g.append('circle')
-            .attr('class', 'checkin-marker')
-            .attr('cx', xScale(checkin.hour) + hourWidth / 2)
-            .attr('cy', checkinY + 10)
-            .attr('r', Math.min(8, Math.max(3, Math.sqrt(checkin.visit_count) * 2)))
-            .attr('fill', venueColor)
-            .attr('opacity', 0.7)
-            .style('cursor', 'pointer')
-            .on('mouseover', function(event) {
-              d3.select(this).attr('stroke', '#000').attr('stroke-width', 2);
-              self.controller.onCheckinHover(checkin, event);
-            })
-            .on('mouseout', function() {
-              d3.select(this).attr('stroke', 'none');
-              self.controller.onCheckinLeave();
-            });
-        });
-      }
     });
   }
 
