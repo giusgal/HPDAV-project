@@ -4,6 +4,8 @@ import psycopg2.extras
 import psycopg2.pool
 import time
 import logging
+from collections import defaultdict
+from datetime import timedelta
 from flask import Flask, jsonify, request, g
 from flask_cors import CORS
 
@@ -1727,6 +1729,264 @@ def flow_map():
         logger.error("Error in /api/flow-map", exc_info=e)
         cur.close()
         return_db_connection(conn)
+        return jsonify({"error": str(e)}), 500
+
+
+# Cache for theme river data
+_theme_river_cache = {}
+
+@app.route('/api/theme-river')
+def theme_river():
+    """
+    Endpoint for Theme River (Streamgraph) visualization showing temporal evolution of city behaviors.
+    
+    This endpoint aggregates participant status logs over time to show how different modes
+    (AtHome, AtWork, AtRecreation, AtRestaurant, Transport) evolve throughout the dataset period.
+    
+    Parameters:
+    - granularity: 'daily', 'weekly', 'monthly' (default: 'weekly')
+    - dimension: 'mode', 'purpose', 'spending' - which dimension to visualize (default: 'mode')
+    - normalize: 'true' or 'false' - whether to normalize to percentages (default: 'false')
+    """
+    global _theme_river_cache
+    
+    granularity = request.args.get('granularity', 'weekly', type=str)
+    dimension = request.args.get('dimension', 'mode', type=str)
+    normalize = request.args.get('normalize', 'false', type=str).lower() == 'true'
+    
+    cache_key = (granularity, dimension, normalize)
+    if cache_key in _theme_river_cache:
+        logger.info(f"Using cached theme river data for key={cache_key}")
+        return jsonify(_theme_river_cache[cache_key])
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    try:
+        results = {
+            'granularity': granularity,
+            'dimension': dimension,
+            'normalize': normalize
+        }
+        
+        # Determine date truncation based on granularity
+        if granularity == 'daily':
+            date_trunc = "DATE(timestamp)"
+        elif granularity == 'monthly':
+            date_trunc = "DATE_TRUNC('month', timestamp)"
+        else:  # weekly
+            date_trunc = "DATE_TRUNC('week', timestamp)"
+        
+        t0 = time.time()
+        
+        if dimension == 'mode':
+            # Participant modes over time from participantstatuslogs
+            cur.execute(f"""
+                SELECT 
+                    {date_trunc} as period,
+                    currentmode::text as category,
+                    COUNT(*) as value
+                FROM participantstatuslogs
+                WHERE currentmode IS NOT NULL
+                GROUP BY {date_trunc}, currentmode
+                ORDER BY period, category
+            """)
+            data = cur.fetchall()
+            logger.info(f"Mode data query time = {time.time() - t0:.3f}s, rows = {len(data)}")
+            
+        elif dimension == 'purpose':
+            # Travel purposes over time from traveljournal
+            t0 = time.time()
+            cur.execute(f"""
+                SELECT 
+                    DATE_TRUNC('day', travelstarttime) as day,
+                    purpose::text as category,
+                    COUNT(*) as value
+                FROM traveljournal
+                WHERE purpose IS NOT NULL
+                GROUP BY DATE_TRUNC('day', travelstarttime), purpose
+            """)
+            daily_data = cur.fetchall()
+            logger.info(f"Purpose daily data query time = {time.time() - t0:.3f}s, rows = {len(daily_data)}")
+            
+            # Aggregate to desired granularity
+            aggregated = defaultdict(lambda: defaultdict(int))
+            
+            for row in daily_data:
+                day = row['day']
+                if granularity == 'daily':
+                    period = day
+                elif granularity == 'monthly':
+                    period = day.replace(day=1)
+                else:  # weekly
+                    period = day - timedelta(days=day.weekday())
+                
+                aggregated[period][row['category']] += row['value']
+            
+            data = []
+            for period in sorted(aggregated.keys()):
+                for category, value in aggregated[period].items():
+                    data.append({
+                        'period': period,
+                        'category': category,
+                        'value': value
+                    })
+                    
+        elif dimension == 'spending':
+            # Spending categories over time from financialjournal
+            # Note: We get per-period spending (not cumulative) by using GROUP BY
+            t0 = time.time()
+            cur.execute(f"""
+                SELECT 
+                    {date_trunc} as period,
+                    category::text as category,
+                    SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) as value
+                FROM financialjournal
+                WHERE category IS NOT NULL AND category != 'Wage'
+                GROUP BY {date_trunc}, category
+                HAVING SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) > 0
+                ORDER BY period, category
+            """)
+            data = cur.fetchall()
+            logger.info(f"Spending data query time = {time.time() - t0:.3f}s, rows = {len(data)}")
+            
+            # Debug: log first few rows to verify non-cumulative data
+            if len(data) > 0:
+                logger.info(f"Spending sample data (first 5 rows): {[dict(row) for row in data[:5]]}")
+        else:
+            return jsonify({"error": f"Invalid dimension: {dimension}"}), 400
+        
+        # Get date range
+        t0 = time.time()
+        if dimension == 'purpose':
+            cur.execute("""
+                SELECT 
+                    MIN(travelstarttime::date) as min_date,
+                    MAX(travelstarttime::date) as max_date
+                FROM traveljournal
+            """)
+        elif dimension == 'spending':
+            cur.execute("""
+                SELECT 
+                    MIN(timestamp::date) as min_date,
+                    MAX(timestamp::date) as max_date
+                FROM financialjournal
+            """)
+        else:  # mode
+            cur.execute("""
+                SELECT 
+                    MIN(timestamp::date) as min_date,
+                    MAX(timestamp::date) as max_date
+                FROM participantstatuslogs
+            """)
+        date_range = cur.fetchone()
+        logger.info(f"Date range query time = {time.time() - t0:.3f}s")
+        
+        results['date_range'] = {
+            'start': str(date_range['min_date']) if date_range['min_date'] else None,
+            'end': str(date_range['max_date']) if date_range['max_date'] else None
+        }
+        
+        # Process data into streamgraph format
+        # Group by period
+        periods_dict = defaultdict(dict)
+        categories = set()
+        
+        for row in data:
+            period_str = str(row['period'].date()) if hasattr(row['period'], 'date') else str(row['period'])
+            category = row['category']
+            # Skip NULL categories
+            if category is None:
+                continue
+            value = float(row['value'])
+            
+            periods_dict[period_str][category] = value
+            categories.add(category)
+        
+        # Sort periods chronologically
+        sorted_periods = sorted(periods_dict.keys())
+        
+        # Normalize if requested
+        if normalize:
+            for period in sorted_periods:
+                total = sum(periods_dict[period].values())
+                if total > 0:
+                    for category in periods_dict[period]:
+                        periods_dict[period][category] = (periods_dict[period][category] / total) * 100
+        
+        # Build output arrays
+        results['periods'] = sorted_periods
+        results['categories'] = sorted(list(categories))
+        results['data'] = []
+        
+        for period in sorted_periods:
+            period_data = {'period': period}
+            for category in results['categories']:
+                period_data[category] = periods_dict[period].get(category, 0)
+            results['data'].append(period_data)
+        
+        # Calculate significant changes (comparing first month to last month)
+        if len(results['data']) > 4:  # Need at least a few data points
+            t0 = time.time()
+            
+            # Take first and last ~month of data for comparison
+            points_per_period = {'daily': 30, 'weekly': 4, 'monthly': 1}
+            n = points_per_period.get(granularity, 4)
+            
+            first_periods = results['data'][:n]
+            last_periods = results['data'][-n:]
+            
+            # Calculate averages
+            first_avg = defaultdict(float)
+            last_avg = defaultdict(float)
+            
+            for period_data in first_periods:
+                for cat in results['categories']:
+                    first_avg[cat] += period_data[cat]
+            
+            for period_data in last_periods:
+                for cat in results['categories']:
+                    last_avg[cat] += period_data[cat]
+            
+            for cat in results['categories']:
+                first_avg[cat] /= len(first_periods)
+                last_avg[cat] /= len(last_periods)
+            
+            # Calculate changes
+            changes = []
+            for cat in results['categories']:
+                if first_avg[cat] > 0:
+                    pct_change = ((last_avg[cat] - first_avg[cat]) / first_avg[cat]) * 100
+                    abs_change = last_avg[cat] - first_avg[cat]
+                    changes.append({
+                        'category': cat,
+                        'first_avg': round(first_avg[cat], 2),
+                        'last_avg': round(last_avg[cat], 2),
+                        'abs_change': round(abs_change, 2),
+                        'pct_change': round(pct_change, 2)
+                    })
+            
+            # Sort by absolute percentage change
+            changes.sort(key=lambda x: abs(x['pct_change']), reverse=True)
+            results['significant_changes'] = changes[:10]
+            
+            logger.info(f"Change analysis time = {time.time() - t0:.3f}s")
+        
+        # Cache results
+        _theme_river_cache[cache_key] = results
+        
+        cur.close()
+        return_db_connection(conn)
+        
+        return jsonify(results)
+    
+    except Exception as e:
+        logger.error("Error in /api/theme-river", exc_info=e)
+        try:
+            cur.close()
+            return_db_connection(conn)
+        except:
+            pass
         return jsonify({"error": str(e)}), 500
 
 

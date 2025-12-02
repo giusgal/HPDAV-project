@@ -190,6 +190,30 @@ export const fetchFlowMapData = async (params = {}) => {
   return response.data;
 };
 
+/**
+ * Fetch theme river data for streamgraph visualization.
+ * @param {Object} params - Query parameters
+ * @param {string} params.granularity - Time granularity: 'daily', 'weekly', 'monthly' (default: 'weekly')
+ * @param {string} params.dimension - Dimension to visualize: 'mode', 'purpose', 'spending' (default: 'mode')
+ * @param {boolean} params.normalize - Whether to normalize to percentages (default: false)
+ * @returns {Promise<Object>} Theme river data with periods, categories, and values
+ */
+export const fetchThemeRiver = async (params = {}) => {
+  const { 
+    granularity = 'weekly', 
+    dimension = 'mode', 
+    normalize = false
+  } = params;
+  const response = await apiClient.get('/api/theme-river', {
+    params: { 
+      granularity,
+      dimension,
+      normalize: normalize.toString()
+    }
+  });
+  return response.data;
+};
+
 // =============================================================================
 // useApi Hook
 // =============================================================================

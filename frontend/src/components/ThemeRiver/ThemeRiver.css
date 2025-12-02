@@ -1,0 +1,333 @@
+.theme-river {
+  padding: 20px;
+  background: #f8f9fa;
+  min-height: 100vh;
+}
+
+.theme-river h2 {
+  margin: 0 0 20px 0;
+  color: #2c3e50;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.theme-river .description {
+  margin-bottom: 20px;
+  padding: 15px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  color: #555;
+  line-height: 1.6;
+}
+
+.theme-river .controls {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+  padding: 15px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  flex-wrap: wrap;
+}
+
+.theme-river .control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 150px;
+}
+
+.theme-river .control-group label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.theme-river .control-group select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.theme-river .control-group select:hover {
+  border-color: #3498db;
+}
+
+.theme-river .control-group select:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+}
+
+.theme-river .visualization-container {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+}
+
+.theme-river .chart-container {
+  width: 100%;
+  height: 500px;
+  position: relative;
+}
+
+.theme-river .loading,
+.theme-river .error {
+  padding: 40px;
+  text-align: center;
+  font-size: 16px;
+  color: #666;
+}
+
+.theme-river .error {
+  color: #e74c3c;
+}
+
+.theme-river .significant-changes {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.theme-river .significant-changes h3 {
+  margin: 0 0 15px 0;
+  color: #2c3e50;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.theme-river .changes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 15px;
+}
+
+.theme-river .change-card {
+  padding: 15px;
+  border-radius: 6px;
+  background: #f8f9fa;
+  border-left: 4px solid #3498db;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.theme-river .change-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.theme-river .change-card.increase {
+  border-left-color: #2ecc71;
+  background: linear-gradient(135deg, #ffffff 0%, #e8f8f0 100%);
+}
+
+.theme-river .change-card.decrease {
+  border-left-color: #e74c3c;
+  background: linear-gradient(135deg, #ffffff 0%, #fde8e8 100%);
+}
+
+.theme-river .change-card .category {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 8px;
+}
+
+.theme-river .change-card .change-value {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 5px;
+}
+
+.theme-river .change-card.increase .change-value {
+  color: #27ae60;
+}
+
+.theme-river .change-card.decrease .change-value {
+  color: #c0392b;
+}
+
+.theme-river .change-card .change-details {
+  font-size: 12px;
+  color: #7f8c8d;
+  line-height: 1.4;
+}
+
+/* Tooltip styling */
+.theme-river-tooltip {
+  position: absolute;
+  padding: 12px 16px;
+  background: rgba(44, 62, 80, 0.95);
+  color: #fff;
+  border-radius: 6px;
+  pointer-events: none;
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  max-width: 250px;
+}
+
+.theme-river-tooltip .tooltip-period {
+  font-weight: 600;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 14px;
+}
+
+.theme-river-tooltip .tooltip-category {
+  font-weight: 600;
+  color: #3498db;
+  margin-bottom: 4px;
+}
+
+.theme-river-tooltip .tooltip-value {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* Legend */
+.theme-river-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #eee;
+}
+
+.theme-river-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 5px 10px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.theme-river-legend-item:hover {
+  background-color: #f0f0f0;
+}
+
+.theme-river-legend-item.disabled {
+  opacity: 0.4;
+}
+
+.theme-river-legend-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+}
+
+.theme-river-legend-label {
+  font-size: 13px;
+  color: #2c3e50;
+  font-weight: 500;
+}
+
+/* Stream paths */
+.stream-layer {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.stream-layer:hover {
+  opacity: 0.9;
+  stroke: #2c3e50;
+  stroke-width: 1.5px;
+}
+
+.stream-layer.dimmed {
+  opacity: 0.2;
+}
+
+/* Axes */
+.axis-label {
+  font-size: 13px;
+  font-weight: 600;
+  fill: #555;
+}
+
+.axis path,
+.axis line {
+  stroke: #ddd;
+  shape-rendering: crispEdges;
+}
+
+.axis text {
+  fill: #666;
+  font-size: 11px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .theme-river .controls {
+    flex-direction: column;
+  }
+  
+  .theme-river .control-group {
+    width: 100%;
+  }
+  
+  .theme-river .changes-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .theme-river .chart-container {
+    height: 400px;
+  }
+}
+
+/* Pie Chart Hover Styles */
+.theme-river .date-label {
+  font-size: 14px;
+  font-weight: 600;
+  fill: #2c3e50;
+}
+
+.theme-river .hover-line {
+  stroke: #666;
+  stroke-width: 1.5;
+  stroke-dasharray: 4, 4;
+  pointer-events: none;
+}
+
+.theme-river .pie-group {
+  pointer-events: none;
+}
+
+.theme-river .pie-slice {
+  stroke: #fff;
+  stroke-width: 2;
+  transition: opacity 0.2s;
+}
+
+.theme-river .pie-title {
+  font-size: 12px;
+  font-weight: 600;
+  fill: #2c3e50;
+  text-anchor: middle;
+}
+
+.theme-river .pie-legend-item text {
+  font-size: 10px;
+  fill: #555;
+}
+
+.theme-river .pie-legend-item rect {
+  stroke: #fff;
+  stroke-width: 1;
+}
