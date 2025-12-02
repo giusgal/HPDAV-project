@@ -46,86 +46,54 @@
   padding-bottom: 15px;
   border-bottom: 1px solid #ddd;
   margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
 }
 
-.daily-routines .month-slider-container {
-  flex: 1;
+.daily-routines .month-control label {
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.daily-routines .month-buttons-container {
   display: flex;
-  flex-direction: column;
   gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
 }
 
-.daily-routines .month-slider {
-  width: 100%;
-  height: 8px;
-  border-radius: 4px;
-  background: linear-gradient(to right, #e0e0e0 0%, #667eea 50%, #764ba2 100%);
-  outline: none;
-  -webkit-appearance: none;
+.daily-routines .month-button {
+  padding: 8px 16px;
+  border: 2px solid #ddd;
+  border-radius: 6px;
+  background: white;
+  color: #555;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-}
-
-.daily-routines .month-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  cursor: pointer;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.daily-routines .month-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
-}
-
-.daily-routines .month-slider::-moz-range-thumb {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  cursor: pointer;
-  border: none;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.daily-routines .month-slider::-moz-range-thumb:hover {
-  transform: scale(1.2);
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
-}
-
-.daily-routines .month-labels {
-  display: flex;
-  justify-content: space-between;
-  padding: 0 4px;
-}
-
-.daily-routines .month-label {
-  font-size: 12px;
-  color: #666;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
   transition: all 0.2s;
-  user-select: none;
-  text-align: center;
-  min-width: 40px;
+  white-space: nowrap;
 }
 
-.daily-routines .month-label:hover {
-  background: #f0f0f0;
+.daily-routines .month-button:hover {
+  border-color: #667eea;
+  background: #f8f9ff;
   color: #333;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.daily-routines .month-label.active {
+.daily-routines .month-button.active {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  font-weight: 600;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  border-color: #667eea;
+  box-shadow: 0 3px 8px rgba(102, 126, 234, 0.4);
+  transform: translateY(-1px);
+}
+
+.daily-routines .month-button.active:hover {
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.5);
 }
 
 .daily-routines .compare-btn {

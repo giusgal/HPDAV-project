@@ -53,7 +53,7 @@ function DailyRoutines() {
           return {
             value: `${m.year}-${m.month}`,
             label: m.label,
-            short: monthNames[m.month]
+            short: `${monthNames[m.month]} ${m.year}`
           };
         })
       ];
@@ -67,6 +67,17 @@ function DailyRoutines() {
       refetchRoutines({ participantIds: selectedIds.join(','), month: selectedMonth });
     }
   }, [selectedIds, selectedMonth, refetchRoutines]);
+
+  // Auto-update when participants change in the dropdowns
+  useEffect(() => {
+    const ids = [];
+    if (participant1) ids.push(parseInt(participant1));
+    if (participant2) ids.push(parseInt(participant2));
+    if (ids.length > 0) {
+      setSelectedIds(ids);
+      setShowSuggestions(false);
+    }
+  }, [participant1, participant2]);
 
   const handleCompare = () => {
     const ids = [];
@@ -152,7 +163,7 @@ function DailyRoutines() {
     chartRef.current.update({
       routines: routineData.routines
     });
-  }, [routineData, chartController]);
+  }, [routineData, chartController, selectedMonth]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -205,32 +216,17 @@ function DailyRoutines() {
     <div className="daily-routines visualization-container">
       <div className="controls">
         <div className="control-group month-control">
-          <label htmlFor="month-slider">Time Period:</label>
-          <div className="month-slider-container">
-            <input 
-              type="range"
-              id="month-slider"
-              min="0"
-              max={availableMonths.length - 1}
-              value={availableMonths.findIndex(m => m.value === selectedMonth)}
-              onChange={(e) => {
-                const idx = parseInt(e.target.value);
-                setSelectedMonth(availableMonths[idx]?.value || 'all');
-              }}
-              className="month-slider"
-              disabled={availableMonths.length === 0}
-            />
-            <div className="month-labels">
-              {availableMonths.map((month, idx) => (
-                <span 
-                  key={month.value} 
-                  className={`month-label ${selectedMonth === month.value ? 'active' : ''}`}
-                  onClick={() => setSelectedMonth(month.value)}
-                >
-                  {month.short}
-                </span>
-              ))}
-            </div>
+          <label>Time Period:</label>
+          <div className="month-buttons-container">
+            {availableMonths.map((month) => (
+              <button
+                key={month.value}
+                className={`month-button ${selectedMonth === month.value ? 'active' : ''}`}
+                onClick={() => setSelectedMonth(month.value)}
+              >
+                {month.short}
+              </button>
+            ))}
           </div>
         </div>
         <div className="control-group">
