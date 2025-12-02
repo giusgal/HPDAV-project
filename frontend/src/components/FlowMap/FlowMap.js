@@ -369,6 +369,26 @@ function FlowMap() {
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Prevent typing years outside valid range
+                    if (data?.available_dates?.min && data?.available_dates?.max) {
+                      const minYear = new Date(data.available_dates.min).getFullYear();
+                      const maxYear = new Date(data.available_dates.max).getFullYear();
+                      const currentValue = e.target.value;
+                      const futureValue = currentValue + e.key;
+                      
+                      // Check if user is typing a year that's clearly outside range
+                      if (e.key >= '0' && e.key <= '9') {
+                        const yearMatch = futureValue.match(/^(\d{4})/);
+                        if (yearMatch) {
+                          const typedYear = parseInt(yearMatch[1]);
+                          if (typedYear < minYear || typedYear > maxYear) {
+                            e.preventDefault();
+                          }
+                        }
+                      }
+                    }
+                  }}
                   min={data?.available_dates?.min}
                   max={data?.available_dates?.max}
                 />
@@ -379,10 +399,47 @@ function FlowMap() {
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Prevent typing years outside valid range
+                    if (data?.available_dates?.min && data?.available_dates?.max) {
+                      const minYear = new Date(data.available_dates.min).getFullYear();
+                      const maxYear = new Date(data.available_dates.max).getFullYear();
+                      const currentValue = e.target.value;
+                      const futureValue = currentValue + e.key;
+                      
+                      // Check if user is typing a year that's clearly outside range
+                      if (e.key >= '0' && e.key <= '9') {
+                        const yearMatch = futureValue.match(/^(\d{4})/);
+                        if (yearMatch) {
+                          const typedYear = parseInt(yearMatch[1]);
+                          if (typedYear < minYear || typedYear > maxYear) {
+                            e.preventDefault();
+                          }
+                        }
+                      }
+                    }
+                  }}
                   min={data?.available_dates?.min}
                   max={data?.available_dates?.max}
                 />
               </div>
+              {(startDate || endDate) && data?.available_dates && (
+                <button 
+                  onClick={() => {
+                    setStartDate(data.available_dates.min);
+                    setEndDate(data.available_dates.max);
+                  }}
+                  className="filter-btn"
+                  style={{
+                    marginTop: '8px',
+                    width: '100%',
+                    padding: '6px 12px',
+                    fontSize: '13px'
+                  }}
+                >
+                  Show All
+                </button>
+              )}
             </div>
           </div>
         </div>

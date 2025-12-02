@@ -256,6 +256,26 @@ function TrafficPatterns() {
             id="start-date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
+            onKeyDown={(e) => {
+              // Prevent typing years outside valid range
+              if (data?.available_dates?.min && data?.available_dates?.max) {
+                const minYear = new Date(data.available_dates.min).getFullYear();
+                const maxYear = new Date(data.available_dates.max).getFullYear();
+                const currentValue = e.target.value;
+                const futureValue = currentValue + e.key;
+                
+                // Check if user is typing a year that's clearly outside range
+                if (e.key >= '0' && e.key <= '9') {
+                  const yearMatch = futureValue.match(/^(\d{4})/);
+                  if (yearMatch) {
+                    const typedYear = parseInt(yearMatch[1]);
+                    if (typedYear < minYear || typedYear > maxYear) {
+                      e.preventDefault();
+                    }
+                  }
+                }
+              }
+            }}
             min={data?.available_dates?.min}
             max={data?.available_dates?.max}
           />
@@ -267,16 +287,36 @@ function TrafficPatterns() {
             id="end-date"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
+            onKeyDown={(e) => {
+              // Prevent typing years outside valid range
+              if (data?.available_dates?.min && data?.available_dates?.max) {
+                const minYear = new Date(data.available_dates.min).getFullYear();
+                const maxYear = new Date(data.available_dates.max).getFullYear();
+                const currentValue = e.target.value;
+                const futureValue = currentValue + e.key;
+                
+                // Check if user is typing a year that's clearly outside range
+                if (e.key >= '0' && e.key <= '9') {
+                  const yearMatch = futureValue.match(/^(\d{4})/);
+                  if (yearMatch) {
+                    const typedYear = parseInt(yearMatch[1]);
+                    if (typedYear < minYear || typedYear > maxYear) {
+                      e.preventDefault();
+                    }
+                  }
+                }
+              }
+            }}
             min={data?.available_dates?.min}
             max={data?.available_dates?.max}
           />
         </div>
-        {(startDate || endDate) && (
+        {(startDate || endDate) && data?.available_dates && (
           <div className="control-group">
             <button 
               onClick={() => {
-                setStartDate('');
-                setEndDate('');
+                setStartDate(data.available_dates.min);
+                setEndDate(data.available_dates.max);
               }}
               style={{
                 padding: '8px 16px',
