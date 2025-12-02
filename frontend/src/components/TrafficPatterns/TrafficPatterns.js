@@ -35,7 +35,6 @@ function TrafficPatterns() {
   const [selectedMetric, setSelectedMetric] = useState('visits');
   const [timePeriod, setTimePeriod] = useState('all');
   const [dayType, setDayType] = useState('all');
-  const [showBottlenecks, setShowBottlenecks] = useState(true);
   const [hoveredBubble, setHoveredBubble] = useState(null);
 
   // Fetch data
@@ -60,16 +59,13 @@ function TrafficPatterns() {
     [selectedMetric]
   );
 
-  // Process data based on selected metric
   const processedData = useMemo(() => {
     if (!data || !data.locations) return null;
 
     const locations = data.locations.map(loc => {
       const value = selectedMetric === 'visits' ? loc.visits : loc.unique_visitors;
-      const isBottleneck = data.statistics && 
-        loc.visits >= data.statistics.p90_visits;
       
-      return { ...loc, value, isBottleneck };
+      return { ...loc, value };
     });
 
     return {
@@ -122,11 +118,9 @@ function TrafficPatterns() {
     chartRef.current.update({
       locations,
       metricConfig: currentMetricConfig,
-      showBottlenecks,
-      statistics,
       buildingsData,
     });
-  }, [processedData, currentMetricConfig, showBottlenecks, buildingsData, chartController]);
+  }, [processedData, currentMetricConfig, buildingsData, chartController]);
 
   // Update hourly chart when data changes (lazy initialization)
   useEffect(() => {
@@ -218,16 +212,6 @@ function TrafficPatterns() {
             ))}
           </select>
         </div>
-        <div className="control-group">
-          <label>
-            <input 
-              type="checkbox" 
-              checked={showBottlenecks} 
-              onChange={(e) => setShowBottlenecks(e.target.checked)}
-            />
-            {' '}Highlight Hotspots (Top 10%)
-          </label>
-        </div>
       </div>
       
       <div className="chart-container">
@@ -236,7 +220,6 @@ function TrafficPatterns() {
           {hoveredBubble && (
             <>
               <strong>Location ({hoveredBubble.x.toFixed(0)}, {hoveredBubble.y.toFixed(0)})</strong>
-              {hoveredBubble.isBottleneck && <span className="bottleneck-badge"> 🔥 Hotspot</span>}
               <br />
               Type: {hoveredBubble.venuetype}
               <br />
@@ -298,7 +281,6 @@ function TrafficPatterns() {
         <ul>
           <li><strong>Bubble size:</strong> Larger bubbles = more traffic at that location</li>
           <li><strong>Color:</strong> Darker/warmer colors = higher activity intensity</li>
-          <li><strong>Hotspots (🔥):</strong> Locations in the top 10% of traffic (red borders)</li>
           <li><strong>Venue types:</strong> Different types of locations are aggregated by their exact coordinates</li>
         </ul>
       </div>

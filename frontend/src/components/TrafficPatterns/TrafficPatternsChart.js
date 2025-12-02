@@ -89,7 +89,6 @@ class TrafficPatternsChart {
     
     this.baseMapGroup = this.g.append('g').attr('class', 'basemap-layer');
     this.bubblesGroup = this.g.append('g').attr('class', 'bubbles-layer');
-    this.hotspotGroup = this.g.append('g').attr('class', 'hotspot-layer');
     this.axesGroup = this.g.append('g').attr('class', 'axes-layer');
     this.legendGroup = this.svg.append('g').attr('class', 'legend-layer');
   }
@@ -97,7 +96,7 @@ class TrafficPatternsChart {
   /**
    * Update the chart with new data.
    */
-  update({ locations, metricConfig, showBottlenecks, statistics, buildingsData }) {
+  update({ locations, metricConfig, buildingsData }) {
     if (!locations || locations.length === 0 || !buildingsData?.buildings) return;
 
     const bounds = computeBoundsFromBuildings(buildingsData.buildings);
@@ -152,13 +151,10 @@ class TrafficPatternsChart {
     this.scales.color = d3.scaleSequential(d3.interpolateYlOrRd)
       .domain([0, maxValue]);
 
-    this.currentOptions = { showBottlenecks, statistics };
-
     // Render layers
     this.renderClipPath(innerWidth, innerHeight);
     this.renderBaseMap(buildingsData, innerWidth, innerHeight);
-    this.renderBubbles(locations, showBottlenecks);
-    this.renderHotspotMarkers(locations, showBottlenecks, statistics);
+    this.renderBubbles(locations);
     this.renderAxes(innerWidth, innerHeight);
     this.renderLegend(metricConfig, innerHeight, containerWidth);
   }
@@ -179,7 +175,6 @@ class TrafficPatternsChart {
     
     this.baseMapGroup.attr('clip-path', 'url(#traffic-clip)');
     this.bubblesGroup.attr('clip-path', 'url(#traffic-clip)');
-    this.hotspotGroup.attr('clip-path', 'url(#traffic-clip)');
   }
 
   /**
@@ -223,7 +218,7 @@ class TrafficPatternsChart {
   /**
    * Render bubbles at exact locations.
    */
-  renderBubbles(locations, showBottlenecks) {
+  renderBubbles(locations) {
     const { x: xScale, y: yScale, radius: radiusScale, color: colorScale } = this.scales;
 
     this.bubblesGroup.selectAll('circle.bubble').remove();
@@ -237,35 +232,10 @@ class TrafficPatternsChart {
       .attr('r', d => radiusScale(d.value))
       .attr('fill', d => colorScale(d.value))
       .attr('opacity', 0.7)
-      .attr('stroke', d => (showBottlenecks && d.isBottleneck) ? '#ff0000' : '#666')
-      .attr('stroke-width', d => (showBottlenecks && d.isBottleneck) ? 2.5 : 0.8)
+      .attr('stroke', '#666')
+      .attr('stroke-width', 0.8)
       .style('cursor', 'pointer')
       .call(this.bindBubbleEvents.bind(this));
-  }
-
-  /**
-   * Render hotspot markers.
-   */
-  renderHotspotMarkers(locations, showBottlenecks, statistics) {
-    this.hotspotGroup.selectAll('*').remove();
-    
-    if (!showBottlenecks || !statistics) return;
-
-    const { x: xScale, y: yScale, radius: radiusScale } = this.scales;
-    const hotspots = locations.filter(d => d.isBottleneck);
-
-    this.hotspotGroup.selectAll('circle.hotspot-marker')
-      .data(hotspots)
-      .join('circle')
-      .attr('class', 'hotspot-marker')
-      .attr('cx', d => xScale(d.x))
-      .attr('cy', d => yScale(d.y))
-      .attr('r', d => radiusScale(d.value) + 6)
-      .attr('fill', 'none')
-      .attr('stroke', '#ff0000')
-      .attr('stroke-width', 2.5)
-      .attr('stroke-dasharray', '5,3')
-      .attr('opacity', 0.8);
   }
 
   /**
@@ -287,10 +257,9 @@ class TrafficPatternsChart {
         self.controller.onMouseMove(event);
       })
       .on('mouseout', function(event, d) {
-        const { showBottlenecks } = self.currentOptions || {};
         d3.select(this)
-          .attr('stroke', (showBottlenecks && d.isBottleneck) ? '#ff0000' : '#666')
-          .attr('stroke-width', (showBottlenecks && d.isBottleneck) ? 2.5 : 0.8)
+          .attr('stroke', '#666')
+          .attr('stroke-width', 0.8)
           .attr('opacity', 0.7);
         
         self.controller.onBubbleLeave();
