@@ -119,7 +119,7 @@ function DailyRoutines() {
         d3.select(tooltipRef.current)
           .style('display', 'block')
           .style('left', `${event.pageX + 10}px`)
-          .style('top', `${event.pageY - 10}px`);
+          .style('top', `${event.pageY - 80}px`);
       }
     },
     onActivityLeave: () => {
@@ -139,7 +139,7 @@ function DailyRoutines() {
         d3.select(tooltipRef.current)
           .style('display', 'block')
           .style('left', `${event.pageX + 10}px`)
-          .style('top', `${event.pageY - 10}px`);
+          .style('top', `${event.pageY - 80}px`);
       }
     },
     onCheckinLeave: () => {
