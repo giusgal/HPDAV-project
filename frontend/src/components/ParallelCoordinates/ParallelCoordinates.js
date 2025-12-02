@@ -48,19 +48,38 @@ function ParallelCoordinates() {
     if (data && data.participants) {
       console.log('ParallelCoordinates: Updating chart with data:', data.participants.length, 'participants');
       console.log('Selected participant:', selectedParticipant);
-      chartInstanceRef.current.update(data, selectedParticipant);
       
-      // Set default participant if not selected
-      if (selectedParticipant === null && data.participants.length > 0) {
-        console.log('Setting default participant:', data.participants[0].participantid);
-        setSelectedParticipant(data.participants[0].participantid);
-      }
+      // Always update chart, even if selectedParticipant is null
+      chartInstanceRef.current.update(data, selectedParticipant);
     }
   }, [data, selectedParticipant]);
 
   const handleParticipantChange = (e) => {
-    const participantId = parseInt(e.target.value);
-    setSelectedParticipant(participantId);
+    const value = e.target.value;
+    if (value === '') {
+      setSelectedParticipant(null); // Allow clearing the selection
+      return;
+    }
+    const participantId = parseInt(value);
+    if (!isNaN(participantId) && data?.participants?.some(p => p.participantid === participantId)) {
+      setSelectedParticipant(participantId);
+    }
+  };
+
+  const handlePrevious = () => {
+    if (!data || !data.participants || selectedParticipant === null) return;
+    const currentIndex = data.participants.findIndex(p => p.participantid === selectedParticipant);
+    if (currentIndex > 0) {
+      setSelectedParticipant(data.participants[currentIndex - 1].participantid);
+    }
+  };
+
+  const handleNext = () => {
+    if (!data || !data.participants || selectedParticipant === null) return;
+    const currentIndex = data.participants.findIndex(p => p.participantid === selectedParticipant);
+    if (currentIndex < data.participants.length - 1) {
+      setSelectedParticipant(data.participants[currentIndex + 1].participantid);
+    }
   };
 
   if (loading) {
@@ -83,18 +102,34 @@ function ParallelCoordinates() {
     <div className="parallel-coordinates-container">
       <div className="controls">
         <div className="control-group">
-          <label htmlFor="participant-select">Person Id</label>
-          <select
-            id="participant-select"
-            value={selectedParticipant !== null ? selectedParticipant : ''}
-            onChange={handleParticipantChange}
-          >
-            {data?.participants?.map(p => (
-              <option key={p.participantid} value={p.participantid}>
-                {p.participantid}
-              </option>
-            ))}
-          </select>
+          <label htmlFor="participant-input">Person Id</label>
+          <div className="participant-selector">
+            <button 
+              className="nav-button"
+              onClick={handlePrevious}
+              disabled={!data || !data.participants || selectedParticipant === null || 
+                data.participants.findIndex(p => p.participantid === selectedParticipant) === 0}
+            >
+              ◀
+            </button>
+            <input
+              id="participant-input"
+              type="number"
+              value={selectedParticipant !== null ? selectedParticipant : ''}
+              onChange={handleParticipantChange}
+              placeholder="Enter ID"
+              min="0"
+              max={data?.participants ? data.participants[data.participants.length - 1].participantid : 0}
+            />
+            <button 
+              className="nav-button"
+              onClick={handleNext}
+              disabled={!data || !data.participants || selectedParticipant === null || 
+                data.participants.findIndex(p => p.participantid === selectedParticipant) === data.participants.length - 1}
+            >
+              ▶
+            </button>
+          </div>
         </div>
       </div>
       

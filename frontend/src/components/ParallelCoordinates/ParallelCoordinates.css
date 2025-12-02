@@ -46,6 +46,63 @@
   box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.1);
 }
 
+.participant-selector {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.participant-selector input[type="number"] {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  width: 120px;
+  text-align: center;
+  -moz-appearance: textfield; /* Firefox */
+}
+
+/* Remove spinner arrows in Chrome, Safari, Edge, Opera */
+.participant-selector input[type="number"]::-webkit-outer-spin-button,
+.participant-selector input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.participant-selector input[type="number"]:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.1);
+}
+
+.nav-button {
+  padding: 8px 16px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+}
+
+.nav-button:hover:not(:disabled) {
+  background: #f0f0f0;
+  border-color: #3498db;
+}
+
+.nav-button:active:not(:disabled) {
+  background: #e0e0e0;
+}
+
+.nav-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .chart-wrapper {
   flex: 1;
   display: flex;
