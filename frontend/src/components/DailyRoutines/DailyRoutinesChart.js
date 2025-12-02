@@ -290,9 +290,9 @@ class DailyRoutinesChart {
     const bounds = this.computeBounds(travelRoutes, buildingsData);
     if (!bounds) return;
     
-    // Fixed map dimensions for better control
-    const maxMapWidth = 800;
-    const maxMapHeight = 500;
+    // Increased map dimensions
+    const maxMapWidth = 1000;
+    const maxMapHeight = 700;
     const mapWidth = Math.min(maxMapWidth, containerWidth - this.margin.left - this.margin.right);
     
     // Calculate proper spacing after timeline
@@ -343,13 +343,13 @@ class DailyRoutinesChart {
   /**
    * Render the actual map content (buildings and routes).
    */
-  renderMapContent(mapGroup, travelRoutes, participantIds, buildingsData, xScale, yScale, mapWidth, innerHeight, mapY) {
+  renderMapContent(mapGroup, travelRoutes, participantIds, buildingsData, xScale, yScale, actualMapWidth, innerHeight, mapY) {
     
     // Add white background
     mapGroup.append('rect')
       .attr('x', 0)
       .attr('y', 0)
-      .attr('width', mapWidth)
+      .attr('width', actualMapWidth)
       .attr('height', innerHeight)
       .attr('fill', 'white');
     
@@ -387,21 +387,22 @@ class DailyRoutinesChart {
       routes.forEach(route => {
         const count = route.movement_count || route.trip_count || 1;
         
-        // Draw line (no arrows)
+        // Draw straight line (no curves)
         mapGroup.append('line')
           .attr('x1', xScale(route.start_x))
           .attr('y1', yScale(route.start_y))
           .attr('x2', xScale(route.end_x))
           .attr('y2', yScale(route.end_y))
           .attr('stroke', color)
-          .attr('stroke-width', Math.min(Math.sqrt(count) * 0.3, 3))
+          .attr('stroke-width', Math.min(Math.sqrt(count) * 2, 7))
           .attr('opacity', 0.6);
       });
     });
+      
     
-    // Legend with white background (draw before border so it's underneath)
+    // Legend with white background - positioned at top right
     const legendGroup = mapGroup.append('g')
-      .attr('transform', `translate(10, 20)`);
+      .attr('transform', `translate(${actualMapWidth - 160}, 20)`);
     
     // Legend background
     const legendHeight = participantIds.length * 25 + 10;
