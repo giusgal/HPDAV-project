@@ -185,6 +185,10 @@ function FlowMap() {
   useEffect(() => {
     if (!chartRef.current || !bounds) return;
     
+    // Only update if we have data and use the gridSize that matches the data
+    // This prevents scaling issues when slider changes but data hasn't loaded yet
+    const dataGridSize = data?.grid_size || debouncedGridSize;
+    
     chartRef.current.update({
       flows: hourlyFlows,
       cells: hourlyCells,
@@ -195,9 +199,9 @@ function FlowMap() {
       currentHour,
       maxTrips: data?.statistics?.max_trips || 100,
       maxFlowsToShow,
-      gridSize: debouncedGridSize,
+      gridSize: dataGridSize,
     });
-  }, [hourlyFlows, hourlyCells, data?.buildings, bounds, showCells, showFlows, currentHour, data?.statistics, maxFlowsToShow, debouncedGridSize]);
+  }, [hourlyFlows, hourlyCells, data?.buildings, bounds, showCells, showFlows, currentHour, data?.statistics, maxFlowsToShow, data?.grid_size, debouncedGridSize]);
   
   // Handle grid size slider
   const handleGridSizeChange = useCallback((e) => {
