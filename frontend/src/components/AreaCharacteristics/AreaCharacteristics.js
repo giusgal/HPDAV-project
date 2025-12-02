@@ -86,6 +86,7 @@ function AreaCharacteristics() {
   const [gridSizeInput, setGridSizeInput] = useState(DEFAULT_GRID_SIZE.toString());
   const [debouncedGridSize, setDebouncedGridSize] = useState(DEFAULT_GRID_SIZE);
   const [hoveredCell, setHoveredCell] = useState(null);
+  const [opacity, setOpacity] = useState(0.7);
   
   // Sync text input when slider changes
   useEffect(() => {
@@ -247,13 +248,13 @@ function AreaCharacteristics() {
       .attr('width', cellWidth)
       .attr('height', cellHeight)
       .attr('fill', d => colorScale(d.value))
-      .attr('opacity', 0.7)
+      .attr('opacity', opacity)
       .attr('stroke', '#fff')
       .attr('stroke-width', 0.5)
       .style('cursor', 'pointer')
       .on('mouseover', (event, d) => {
         setHoveredCell(d);
-        d3.select(event.target).attr('stroke', '#000').attr('stroke-width', 2);
+        d3.select(event.target).attr('stroke', '#000').attr('stroke-width', 2).attr('opacity', Math.min(opacity + 0.2, 1));
         
         const tooltip = d3.select(tooltipRef.current);
         tooltip.style('display', 'block')
@@ -267,7 +268,7 @@ function AreaCharacteristics() {
       })
       .on('mouseout', (event) => {
         setHoveredCell(null);
-        d3.select(event.target).attr('stroke', '#fff').attr('stroke-width', 0.5);
+        d3.select(event.target).attr('stroke', '#fff').attr('stroke-width', 0.5).attr('opacity', opacity);
         d3.select(tooltipRef.current).style('display', 'none');
       });
 
@@ -335,7 +336,7 @@ function AreaCharacteristics() {
       .attr('font-size', '12px')
       .text(currentMetricConfig.label);
 
-  }, [processedData, debouncedGridSize, currentMetricConfig, buildingsData]);
+  }, [processedData, debouncedGridSize, currentMetricConfig, buildingsData, opacity]);
 
   const formatValue = (value, metricId) => {
     if (value == null) return 'N/A';
@@ -429,6 +430,20 @@ function AreaCharacteristics() {
             style={{ width: '60px', padding: '4px 8px', border: '1px solid #ddd', borderRadius: '4px' }}
           />
           <span style={{ fontSize: '12px', color: '#666' }}>units</span>
+        </div>
+        <div className="control-group">
+          <label htmlFor="opacity-slider">Opacity:</label>
+          <input
+            type="range"
+            id="opacity-slider"
+            min="0.1"
+            max="1"
+            step="0.05"
+            value={opacity}
+            onChange={(e) => setOpacity(Number(e.target.value))}
+            style={{ width: '120px' }}
+          />
+          <span style={{ fontSize: '12px', color: '#666', minWidth: '35px' }}>{(opacity * 100).toFixed(0)}%</span>
         </div>
       </div>
       
