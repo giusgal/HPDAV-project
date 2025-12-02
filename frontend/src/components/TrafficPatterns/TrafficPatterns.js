@@ -271,6 +271,29 @@ function TrafficPatterns() {
             max={data?.available_dates?.max}
           />
         </div>
+        {(startDate || endDate) && (
+          <div className="control-group">
+            <button 
+              onClick={() => {
+                setStartDate('');
+                setEndDate('');
+              }}
+              style={{
+                padding: '8px 16px',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                background: '#f8f9fa',
+                fontSize: '14px',
+                cursor: 'pointer',
+                fontWeight: '500'
+              }}
+              onMouseOver={(e) => e.target.style.background = '#e9ecef'}
+              onMouseOut={(e) => e.target.style.background = '#f8f9fa'}
+            >
+              Show All
+            </button>
+          </div>
+        )}
       </div>
       
       {data?.available_dates && (
