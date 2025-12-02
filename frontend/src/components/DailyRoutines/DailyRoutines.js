@@ -364,27 +364,6 @@ function DailyRoutines() {
           </div>
         </>
       )}
-
-      <div className="info-panel">
-        <h3>Understanding Daily Routines</h3>
-        <p>
-          This visualization shows how participants spend their typical day. Each row 
-          represents a participant's 24-hour routine, with colors indicating different activities.
-        </p>
-        <p>
-          <strong>How to identify different routines:</strong>
-        </p>
-        <ul>
-          <li><strong>Work patterns:</strong> Look for blue (AtWork) blocks - some work 9-5, others have irregular schedules</li>
-          <li><strong>Social activity:</strong> Orange/pink blocks show recreation and dining out</li>
-          <li><strong>Home time:</strong> Green blocks indicate time at home</li>
-          <li><strong>Commuting:</strong> Purple blocks show travel between locations</li>
-        </ul>
-        <p>
-          <strong>Confidence level:</strong> Darker colors indicate more consistent patterns; lighter colors 
-          mean the participant varies their activity more at that time.
-        </p>
-      </div>
     </div>
   );
 }
