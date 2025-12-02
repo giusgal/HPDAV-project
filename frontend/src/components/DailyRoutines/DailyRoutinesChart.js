@@ -66,7 +66,7 @@ class DailyRoutinesChart {
     
     const containerWidth = this.container.clientWidth;
     const width = containerWidth;
-    const height = this.margin.top + this.margin.bottom + (participantIds.length * this.rowHeight * 2);
+    const height = this.margin.top + this.margin.bottom + (participantIds.length * this.rowHeight);
     const innerWidth = width - this.margin.left - this.margin.right;
 
     // Clear and recreate SVG
