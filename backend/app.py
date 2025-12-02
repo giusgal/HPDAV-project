@@ -840,6 +840,54 @@ def participant_routines():
         results['selected_ids'] = participant_ids
         logger.info(f"Participant routines query time = {time.time() - t0:.3f}s for {len(participant_ids)} participants")
         
+        # Get all movement routes from participantstatuslogs (all position changes)
+        if month_param != 'all':
+            try:
+                year, month = month_param.split('-')
+                month_filter_travel = f"AND EXTRACT(YEAR FROM psl.timestamp) = {year} AND EXTRACT(MONTH FROM psl.timestamp) = {month}"
+            except (ValueError, AttributeError):
+                month_filter_travel = ""
+        else:
+            month_filter_travel = ""
+        
+        travel_routes = {}
+        for pid in participant_ids:
+            cur.execute(f"""
+                WITH ordered_positions AS (
+                    SELECT 
+                        currentlocation[0] as x,
+                        currentlocation[1] as y,
+                        timestamp,
+                        LAG(currentlocation[0]) OVER (ORDER BY timestamp) as prev_x,
+                        LAG(currentlocation[1]) OVER (ORDER BY timestamp) as prev_y
+                    FROM participantstatuslogs psl
+                    WHERE participantid = %s
+                        AND currentlocation IS NOT NULL
+                        {month_filter_travel}
+                    ORDER BY timestamp
+                )
+                SELECT 
+                    prev_x as start_x,
+                    prev_y as start_y,
+                    x as end_x,
+                    y as end_y,
+                    COUNT(*) as movement_count
+                FROM ordered_positions
+                WHERE prev_x IS NOT NULL 
+                    AND prev_y IS NOT NULL
+                    AND (prev_x != x OR prev_y != y)  -- Only actual movements
+                GROUP BY prev_x, prev_y, x, y
+                HAVING COUNT(*) >= 1  -- Include all movements
+                ORDER BY movement_count DESC
+                LIMIT 200
+            """, (pid,))
+            
+            routes = [dict(row) for row in cur.fetchall()]
+            travel_routes[pid] = routes
+        
+        results['travel_routes'] = travel_routes
+        logger.info(f"Movement routes query completed for {len(participant_ids)} participants")
+        
         cur.close()
         return_db_connection(conn)
         

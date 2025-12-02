@@ -58,8 +58,10 @@ class DailyRoutinesChart {
    * 
    * @param {Object} params - Update parameters
    * @param {Object} params.routines - Object keyed by participant ID with routine data
+   * @param {Object} params.travelRoutes - Travel routes for participants
+   * @param {Object} params.buildingsData - Building data for map background
    */
-  update({ routines }) {
+  update({ routines, travelRoutes = {}, buildingsData = null }) {
     if (!routines || Object.keys(routines).length === 0) return;
 
     const participantIds = Object.keys(routines).map(Number);
@@ -90,6 +92,11 @@ class DailyRoutinesChart {
     this.renderGridLines(xScale, participantIds.length);
     this.renderTimelines(routines, participantIds, xScale, innerWidth);
     this.renderLegend(height, innerWidth);
+    
+    // Render travel routes map if data is available
+    if (Object.keys(travelRoutes).length > 0 && buildingsData) {
+      this.renderTravelMap(travelRoutes, participantIds, buildingsData, width);
+    }
   }
 
   /**
@@ -210,6 +217,222 @@ class DailyRoutinesChart {
         .attr('font-size', '11px')
         .text(ACTIVITY_LABELS[activity]);
     });
+  }
+
+  /**
+   * Parse PostgreSQL polygon string to array of points.
+   */
+  parsePolygon(polygonStr) {
+    if (!polygonStr) return null;
+    try {
+      const cleaned = polygonStr.replace(/^\(\(/, '').replace(/\)\)$/, '');
+      const pointStrings = cleaned.split('),(');
+      return pointStrings.map(pointStr => {
+        const [x, y] = pointStr.replace(/[()]/g, '').split(',').map(Number);
+        return { x, y };
+      });
+    } catch (e) {
+      console.warn('Failed to parse polygon:', polygonStr, e);
+      return null;
+    }
+  }
+
+  /**
+   * Compute bounds from routes and buildings.
+   */
+  computeBounds(travelRoutes, buildingsData) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    
+    // Include route points
+    Object.values(travelRoutes).forEach(routes => {
+      routes.forEach(route => {
+        if (route.start_x < minX) minX = route.start_x;
+        if (route.start_x > maxX) maxX = route.start_x;
+        if (route.start_y < minY) minY = route.start_y;
+        if (route.start_y > maxY) maxY = route.start_y;
+        if (route.end_x < minX) minX = route.end_x;
+        if (route.end_x > maxX) maxX = route.end_x;
+        if (route.end_y < minY) minY = route.end_y;
+        if (route.end_y > maxY) maxY = route.end_y;
+      });
+    });
+    
+    // Include buildings if routes didn't provide bounds
+    if (minX === Infinity && buildingsData?.buildings) {
+      buildingsData.buildings.forEach(b => {
+        const pts = this.parsePolygon(b.location);
+        if (!pts) return;
+        pts.forEach(p => {
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        });
+      });
+    }
+    
+    if (minX === Infinity) return null;
+    
+    const padX = (maxX - minX) * 0.1;
+    const padY = (maxY - minY) * 0.1;
+    return {
+      minX: minX - padX,
+      maxX: maxX + padX,
+      minY: minY - padY,
+      maxY: maxY + padY
+    };
+  }
+
+  /**
+   * Render travel routes map.
+   */
+  renderTravelMap(travelRoutes, participantIds, buildingsData, containerWidth) {
+    const bounds = this.computeBounds(travelRoutes, buildingsData);
+    if (!bounds) return;
+    
+    // Fixed map dimensions for better control
+    const maxMapWidth = 800;
+    const maxMapHeight = 500;
+    const mapWidth = Math.min(maxMapWidth, containerWidth - this.margin.left - this.margin.right);
+    
+    // Calculate proper spacing after timeline
+    const currentHeight = this.svg.node().getBBox().height;
+    const mapY = currentHeight + 80; // Increased spacing between timeline and map
+    
+    // Scales with aspect ratio preserved but constrained
+    const dataWidth = bounds.maxX - bounds.minX;
+    const dataHeight = bounds.maxY - bounds.minY;
+    const dataAspectRatio = dataWidth / dataHeight;
+    
+    // Calculate height based on width and aspect ratio, but cap it
+    let actualMapWidth = mapWidth;
+    let innerHeight = mapWidth / dataAspectRatio;
+    if (innerHeight > maxMapHeight) {
+      innerHeight = maxMapHeight;
+      actualMapWidth = innerHeight * dataAspectRatio;
+    }
+    
+    // Center the map horizontally
+    const mapOffsetX = this.margin.left + (mapWidth - actualMapWidth) / 2;
+    
+    // Create map group - centered
+    const mapGroup = this.svg.append('g')
+      .attr('class', 'travel-map')
+      .attr('transform', `translate(${mapOffsetX}, ${mapY})`);
+    
+    // Title - centered above the map
+    mapGroup.append('text')
+      .attr('x', actualMapWidth / 2)
+      .attr('y', -30)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', '16px')
+      .attr('font-weight', 'bold')
+      .text('Travel Routes');
+    
+    const xScale = d3.scaleLinear()
+      .domain([bounds.minX, bounds.maxX])
+      .range([0, actualMapWidth]);
+    
+    const yScale = d3.scaleLinear()
+      .domain([bounds.minY, bounds.maxY])
+      .range([innerHeight, 0]);
+      
+    this.renderMapContent(mapGroup, travelRoutes, participantIds, buildingsData, xScale, yScale, actualMapWidth, innerHeight, mapY);
+  }
+
+  /**
+   * Render the actual map content (buildings and routes).
+   */
+  renderMapContent(mapGroup, travelRoutes, participantIds, buildingsData, xScale, yScale, mapWidth, innerHeight, mapY) {
+    
+    // Add white background
+    mapGroup.append('rect')
+      .attr('x', 0)
+      .attr('y', 0)
+      .attr('width', mapWidth)
+      .attr('height', innerHeight)
+      .attr('fill', 'white');
+    
+    // Render buildings
+    if (buildingsData?.buildings) {
+      const lineGenerator = d3.line()
+        .x(d => xScale(d.x))
+        .y(d => yScale(d.y))
+        .curve(d3.curveLinearClosed);
+      
+      const buildingsWithPaths = buildingsData.buildings
+        .map(b => ({ ...b, points: this.parsePolygon(b.location) }))
+        .filter(b => b.points && b.points.length >= 3);
+      
+      mapGroup.selectAll('path.building')
+        .data(buildingsWithPaths)
+        .join('path')
+        .attr('class', 'building')
+        .attr('d', d => lineGenerator(d.points))
+        .attr('fill', 'rgba(200, 200, 200, 0.3)')
+        .attr('stroke', '#999')
+        .attr('stroke-width', 0.5);
+    }
+    
+    // Color scale for participants
+    const participantColors = d3.scaleOrdinal()
+      .domain(participantIds)
+      .range(['#2196F3', '#FF9800', '#4CAF50', '#E91E63']);
+    
+    // Render routes for each participant
+    participantIds.forEach((pid, idx) => {
+      const routes = travelRoutes[pid] || [];
+      const color = participantColors(pid);
+      
+      routes.forEach(route => {
+        const count = route.movement_count || route.trip_count || 1;
+        
+        // Draw line (no arrows)
+        mapGroup.append('line')
+          .attr('x1', xScale(route.start_x))
+          .attr('y1', yScale(route.start_y))
+          .attr('x2', xScale(route.end_x))
+          .attr('y2', yScale(route.end_y))
+          .attr('stroke', color)
+          .attr('stroke-width', Math.min(Math.sqrt(count) * 0.3, 3))
+          .attr('opacity', 0.6);
+      });
+    });
+    
+    // Legend with white background (draw before border so it's underneath)
+    const legendGroup = mapGroup.append('g')
+      .attr('transform', `translate(10, 20)`);
+    
+    // Legend background
+    const legendHeight = participantIds.length * 25 + 10;
+    legendGroup.append('rect')
+      .attr('x', -5)
+      .attr('y', -5)
+      .attr('width', 150)
+      .attr('height', legendHeight)
+      .attr('fill', 'white')
+      .attr('stroke', '#ccc')
+      .attr('stroke-width', 1)
+      .attr('opacity', 0.9);
+    
+    participantIds.forEach((pid, idx) => {
+      legendGroup.append('line')
+        .attr('x1', 5)
+        .attr('x2', 35)
+        .attr('y1', idx * 25 + 5)
+        .attr('y2', idx * 25 + 5)
+        .attr('stroke', participantColors(pid))
+        .attr('stroke-width', 3);
+      
+      legendGroup.append('text')
+        .attr('x', 40)
+        .attr('y', idx * 25 + 10)
+        .attr('font-size', '12px')
+        .text(`Participant ${pid}`);
+    });
+    
+    // Update SVG height to include map with proper padding
+    this.svg.attr('height', mapY + innerHeight + 80);
   }
 
   /**

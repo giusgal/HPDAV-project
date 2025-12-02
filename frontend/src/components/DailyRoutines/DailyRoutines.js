@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
-import { useApi, fetchParticipantRoutines } from '../../hooks/useApi';
+import { useApi, fetchParticipantRoutines, fetchBuildingsMapData } from '../../hooks/useApi';
 import DailyRoutinesChart, { ACTIVITY_COLORS, ACTIVITY_LABELS } from './DailyRoutinesChart';
 import './DailyRoutines.css';
 
@@ -37,6 +37,9 @@ function DailyRoutines() {
     { participantIds: selectedIds.join(','), month: selectedMonth },
     false
   );
+  
+  // Fetch buildings data for map background
+  const { data: buildingsData } = useApi(fetchBuildingsMapData, {}, true);
 
   // Reload list when month changes
   useEffect(() => {
@@ -161,9 +164,11 @@ function DailyRoutines() {
     chartRef.current.initialize();
 
     chartRef.current.update({
-      routines: routineData.routines
+      routines: routineData.routines,
+      travelRoutes: routineData.travel_routes || {},
+      buildingsData: buildingsData
     });
-  }, [routineData, chartController, selectedMonth]);
+  }, [routineData, buildingsData, chartController, selectedMonth]);
 
   // Cleanup on unmount
   useEffect(() => {
