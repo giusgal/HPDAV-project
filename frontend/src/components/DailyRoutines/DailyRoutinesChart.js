@@ -37,8 +37,10 @@ class DailyRoutinesChart {
   constructor(container, controller) {
     this.container = container;
     this.controller = controller;
-    this.svg = null;
-    this.g = null;
+    this.timelineSvg = null;
+    this.timelineG = null;
+    this.mapSvg = null;
+    this.mapG = null;
     
     this.margin = { top: 40, right: 30, bottom: 60, left: 150 };
     this.rowHeight = 60;
@@ -49,8 +51,10 @@ class DailyRoutinesChart {
    */
   initialize() {
     d3.select(this.container).selectAll('*').remove();
-    this.svg = null;
-    this.g = null;
+    this.timelineSvg = null;
+    this.timelineG = null;
+    this.mapSvg = null;
+    this.mapG = null;
   }
 
   /**
@@ -71,15 +75,17 @@ class DailyRoutinesChart {
     const height = this.margin.top + this.margin.bottom + (participantIds.length * this.rowHeight);
     const innerWidth = width - this.margin.left - this.margin.right;
 
-    // Clear and recreate SVG
+    // Clear and recreate SVG elements
     d3.select(this.container).selectAll('*').remove();
 
-    this.svg = d3.select(this.container)
+    // Create timeline SVG
+    this.timelineSvg = d3.select(this.container)
       .append('svg')
       .attr('width', width)
-      .attr('height', height);
+      .attr('height', height)
+      .style('display', 'block');
 
-    this.g = this.svg.append('g')
+    this.timelineG = this.timelineSvg.append('g')
       .attr('transform', `translate(${this.margin.left},${this.margin.top})`);
 
     // Time scale (0-24 hours)
@@ -87,7 +93,7 @@ class DailyRoutinesChart {
       .domain([0, 24])
       .range([0, innerWidth]);
 
-    // Render components
+    // Render timeline components
     this.renderTimeAxis(xScale);
     this.renderGridLines(xScale, participantIds.length);
     this.renderTimelines(routines, participantIds, xScale, innerWidth);
@@ -107,7 +113,7 @@ class DailyRoutinesChart {
       .ticks(24)
       .tickFormat(d => `${d}:00`);
 
-    this.g.append('g')
+    this.timelineG.append('g')
       .attr('class', 'time-axis')
       .call(timeAxis)
       .selectAll('text')
@@ -122,7 +128,7 @@ class DailyRoutinesChart {
   renderGridLines(xScale, participantCount) {
     const totalHeight = participantCount * this.rowHeight * 2;
 
-    this.g.selectAll('.grid-line')
+    this.timelineG.selectAll('.grid-line')
       .data(d3.range(0, 25, 3))
       .join('line')
       .attr('class', 'grid-line')
@@ -151,7 +157,7 @@ class DailyRoutinesChart {
         ? `ID ${pid} (Age: ${participant.age}, ${participant.education || 'N/A'})`
         : `Participant ${pid}`;
       
-      this.g.append('text')
+      this.timelineG.append('text')
         .attr('x', -10)
         .attr('y', y + this.rowHeight / 2)
         .attr('text-anchor', 'end')
@@ -167,7 +173,7 @@ class DailyRoutinesChart {
         const color = ACTIVITY_COLORS[activity] || ACTIVITY_COLORS['Unknown'];
         const confidence = hour.confidence || 0;
 
-        this.g.append('rect')
+        this.timelineG.append('rect')
           .attr('class', 'activity-bar')
           .attr('x', xScale(hourIdx))
           .attr('y', y)
@@ -198,7 +204,7 @@ class DailyRoutinesChart {
    * Render the activity legend at the bottom.
    */
   renderLegend(totalHeight, innerWidth) {
-    const legend = this.svg.append('g')
+    const legend = this.timelineSvg.append('g')
       .attr('transform', `translate(${this.margin.left}, ${totalHeight - 30})`);
 
     const activities = Object.entries(ACTIVITY_COLORS).filter(([key]) => key !== 'Unknown');
@@ -290,14 +296,14 @@ class DailyRoutinesChart {
     const bounds = this.computeBounds(travelRoutes, buildingsData);
     if (!bounds) return;
     
-    // Increased map dimensions
+    // Map dimensions with margins
+    const mapMargin = { top: 80, right: 200, bottom: 40, left: 200 };
     const maxMapWidth = 1000;
     const maxMapHeight = 700;
-    const mapWidth = Math.min(maxMapWidth, containerWidth - this.margin.left - this.margin.right);
     
-    // Calculate proper spacing after timeline
-    const currentHeight = this.svg.node().getBBox().height;
-    const mapY = currentHeight + 80; // Increased spacing between timeline and map
+    // Available space for the actual map content
+    const availableWidth = containerWidth - mapMargin.left - mapMargin.right;
+    const mapWidth = Math.min(maxMapWidth, availableWidth);
     
     // Scales with aspect ratio preserved but constrained
     const dataWidth = bounds.maxX - bounds.minX;
@@ -312,16 +318,28 @@ class DailyRoutinesChart {
       actualMapWidth = innerHeight * dataAspectRatio;
     }
     
-    // Center the map horizontally
-    const mapOffsetX = this.margin.left + (mapWidth - actualMapWidth) / 2;
+    // Calculate total SVG dimensions - use full container width
+    const totalMapWidth = containerWidth;
+    const totalMapHeight = innerHeight + mapMargin.top + mapMargin.bottom;
+    
+    // Create separate SVG for the map
+    this.mapSvg = d3.select(this.container)
+      .append('svg')
+      .attr('width', totalMapWidth)
+      .attr('height', totalMapHeight)
+      .style('display', 'block')
+      .style('margin-top', '40px');
+    
+    // Center the map content within the SVG
+    const mapOffsetX = (containerWidth - actualMapWidth) / 2;
     
     // Create map group - centered
-    const mapGroup = this.svg.append('g')
+    this.mapG = this.mapSvg.append('g')
       .attr('class', 'travel-map')
-      .attr('transform', `translate(${mapOffsetX}, ${mapY})`);
+      .attr('transform', `translate(${mapOffsetX}, ${mapMargin.top})`);
     
     // Title - centered above the map
-    mapGroup.append('text')
+    this.mapG.append('text')
       .attr('x', actualMapWidth / 2)
       .attr('y', -30)
       .attr('text-anchor', 'middle')
@@ -337,13 +355,13 @@ class DailyRoutinesChart {
       .domain([bounds.minY, bounds.maxY])
       .range([innerHeight, 0]);
       
-    this.renderMapContent(mapGroup, travelRoutes, participantIds, buildingsData, xScale, yScale, actualMapWidth, innerHeight, mapY);
+    this.renderMapContent(this.mapG, travelRoutes, participantIds, buildingsData, xScale, yScale, actualMapWidth, innerHeight);
   }
 
   /**
    * Render the actual map content (buildings and routes).
    */
-  renderMapContent(mapGroup, travelRoutes, participantIds, buildingsData, xScale, yScale, actualMapWidth, innerHeight, mapY) {
+  renderMapContent(mapGroup, travelRoutes, participantIds, buildingsData, xScale, yScale, actualMapWidth, innerHeight) {
     
     // Add white background
     mapGroup.append('rect')
@@ -431,9 +449,6 @@ class DailyRoutinesChart {
         .attr('font-size', '12px')
         .text(`Participant ${pid}`);
     });
-    
-    // Update SVG height to include map with proper padding
-    this.svg.attr('height', mapY + innerHeight + 80);
   }
 
   /**
@@ -441,8 +456,10 @@ class DailyRoutinesChart {
    */
   destroy() {
     d3.select(this.container).selectAll('*').remove();
-    this.svg = null;
-    this.g = null;
+    this.timelineSvg = null;
+    this.timelineG = null;
+    this.mapSvg = null;
+    this.mapG = null;
   }
 }
 
