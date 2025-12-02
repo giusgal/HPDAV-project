@@ -80,6 +80,8 @@ function FlowMap() {
   const [showFlows, setShowFlows] = useState(true);
   const [hoveredFlow, setHoveredFlow] = useState(null);
   const [hoveredCell, setHoveredCell] = useState(null);
+  const [maxFlowsToShow, setMaxFlowsToShow] = useState(50);
+  const [aggregationInfo, setAggregationInfo] = useState(null);
   
   const animationRef = useRef(null);
   
@@ -168,6 +170,7 @@ function FlowMap() {
     chartRef.current = new FlowMapChart(svgRef.current, {
       onFlowHover: (flow) => setHoveredFlow(flow),
       onCellHover: (cell) => setHoveredCell(cell),
+      onAggregationChange: (info) => setAggregationInfo(info),
     });
     chartRef.current.initialize();
     
@@ -191,8 +194,10 @@ function FlowMap() {
       showFlows,
       currentHour,
       maxTrips: data?.statistics?.max_trips || 100,
+      maxFlowsToShow,
+      gridSize: debouncedGridSize,
     });
-  }, [hourlyFlows, hourlyCells, data?.buildings, bounds, showCells, showFlows, currentHour, data?.statistics]);
+  }, [hourlyFlows, hourlyCells, data?.buildings, bounds, showCells, showFlows, currentHour, data?.statistics, maxFlowsToShow, debouncedGridSize]);
   
   // Handle grid size slider
   const handleGridSizeChange = useCallback((e) => {
@@ -315,6 +320,19 @@ function FlowMap() {
             />
           </div>
           
+          <div className="filter-group">
+            <label>Max Flows Displayed: {maxFlowsToShow}</label>
+            <input
+              type="range"
+              min={10}
+              max={200}
+              step={10}
+              value={maxFlowsToShow}
+              onChange={(e) => setMaxFlowsToShow(parseInt(e.target.value, 10))}
+            />
+            <small className="filter-hint">Limits visible flows during busy hours</small>
+          </div>
+          
           <div className="toggle-group">
             <label>
               <input
@@ -356,6 +374,12 @@ function FlowMap() {
                 <span className="stat-label">This Hour</span>
                 <span className="stat-value">{hourlyFlows.length} flows</span>
               </div>
+              {aggregationInfo && (
+                <div className="stat-item aggregation-info">
+                  <span className="stat-label">Showing</span>
+                  <span className="stat-value highlight">{aggregationInfo.shownCount} / {aggregationInfo.originalCount}</span>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -365,8 +389,8 @@ function FlowMap() {
           <h3>Legend</h3>
           <div className="legend-items">
             <div className="legend-item">
-              <div className="legend-icon flow-arc"></div>
-              <span>Flow Arc (width = volume)</span>
+              <div className="legend-icon flow-arc-gradient"></div>
+              <span>Flow Arc (green→red = start→end)</span>
             </div>
             <div className="legend-item">
               <div className="legend-icon origin-cell"></div>
@@ -378,6 +402,11 @@ function FlowMap() {
             </div>
           </div>
           <div className="legend-colors">
+            <div className="color-scale">
+              <span>Origin</span>
+              <div className="gradient-bar flow-direction"></div>
+              <span>Dest</span>
+            </div>
             <div className="color-scale">
               <span>Low</span>
               <div className="gradient-bar"></div>
@@ -391,6 +420,17 @@ function FlowMap() {
       <div className="flow-map-chart">
         {loading && <div className="loading-overlay">Loading flow data...</div>}
         {error && <div className="error-message">Error: {error}</div>}
+        
+        {/* Aggregation notice banner */}
+        {aggregationInfo && (
+          <div className="aggregation-banner">
+            <span className="aggregation-icon">⚡</span>
+            <span>
+              Showing top <strong>{aggregationInfo.shownCount}</strong> of <strong>{aggregationInfo.originalCount}</strong> flows 
+              ({aggregationInfo.percentTripsShown}% of trips)
+            </span>
+          </div>
+        )}
         
         <svg ref={svgRef} className="flow-map-svg"></svg>
         

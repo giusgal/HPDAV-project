@@ -6,6 +6,9 @@
 
 import * as d3 from 'd3';
 
+const positiveFlow = '#e67e22';
+const negativeFlow = '#2980b9';
+
 class FlowMapChart {
   /**
    * Create a new chart instance.
@@ -98,8 +101,21 @@ class FlowMapChart {
   /**
    * Update the chart with new data.
    */
-  update({ flows, cells, buildings, bounds, showCells, showFlows, currentHour, maxTrips }) {
+  update({ flows, cells, buildings, bounds, showCells, showFlows, currentHour, maxTrips, maxFlowsToShow = 50, gridSize = 300 }) {
     if (!bounds) return;
+
+    // Detect if grid size changed - if so, clear cells and flows immediately (no transitions)
+    const gridSizeChanged = this._lastGridSize !== undefined && this._lastGridSize !== gridSize;
+    if (gridSizeChanged) {
+      // Immediately clear all cells and flows without transitions
+      this.cellsGroup.selectAll('*').interrupt().remove();
+      this.flowsGroup.selectAll('*').interrupt().remove();
+      this.defs.selectAll('linearGradient[id^="flow-gradient-"]').remove();
+    }
+    this._lastGridSize = gridSize;
+
+    // Store gridSize for cell rendering
+    this.gridSize = gridSize;
 
     // Calculate dimensions
     const containerElement = this.container.parentElement;
@@ -165,9 +181,13 @@ class FlowMapChart {
     }
     
     if (showFlows && flows) {
-      this.renderFlows(flows, maxTrips);
+      this.renderFlows(flows, maxTrips, maxFlowsToShow);
     } else {
       this.flowsGroup.selectAll('*').remove();
+      this.aggregationInfo = null;
+      if (this.controller?.onAggregationChange) {
+        this.controller.onAggregationChange(null);
+      }
     }
     
     this.renderAxes(innerWidth, innerHeight);
@@ -205,10 +225,10 @@ class FlowMapChart {
     polygons.join(
       enter => enter.append('path')
         .attr('class', 'building')
-        .attr('fill', d => this.buildingColors[d.buildingtype] || '#95a5a6')
-        .attr('stroke', '#333')
+        .attr('fill', d => '#afafafb7')
+        .attr('stroke', '#666')
         .attr('stroke-width', 0.5)
-        .attr('opacity', 0.3)
+        .attr('opacity', 0.5)
         .attr('d', d => {
           const points = this.parsePolygon(d.location);
           if (!points || points.length < 3) return null;
@@ -217,7 +237,7 @@ class FlowMapChart {
           ).join(' ') + ' Z';
         }),
       update => update
-        .attr('fill', d => this.buildingColors[d.buildingtype] || '#95a5a6')
+        .attr('fill', d => '#afafafb7')
         .attr('d', d => {
           const points = this.parsePolygon(d.location);
           if (!points || points.length < 3) return null;
@@ -238,8 +258,11 @@ class FlowMapChart {
       return;
     }
 
-    // Calculate cell size based on grid
-    const cellPixelSize = Math.abs(this.scales.x(300) - this.scales.x(0));
+    // Use the gridSize to compute cell positions from grid indices
+    const gridSize = this.gridSize || 300;
+    
+    // Calculate max values for opacity scaling
+    const maxAbsNetFlow = d3.max(cells, d => Math.abs(d.net_flow)) || 1;
 
     const cellRects = this.cellsGroup.selectAll('rect.cell')
       .data(cells, d => `${d.cell_x}-${d.cell_y}`);
@@ -247,59 +270,62 @@ class FlowMapChart {
     cellRects.join(
       enter => enter.append('rect')
         .attr('class', 'cell')
-        .attr('x', d => this.scales.x(d.x) - cellPixelSize / 2)
-        .attr('y', d => this.scales.y(d.y) - cellPixelSize / 2)
-        .attr('width', cellPixelSize)
-        .attr('height', cellPixelSize)
-        .attr('fill', d => {
-          // Color by net flow: blue for origins (negative), orange for destinations (positive)
-          if (d.net_flow > 0) {
-            return this.destColorScale(d.arrivals);
-          } else if (d.net_flow < 0) {
-            return this.originColorScale(d.departures);
-          }
-          return '#ccc';
+        .attr('x', d => {
+          // cell_x is the grid index, so the cell starts at cell_x * gridSize
+          const cellStartX = d.cell_x * gridSize;
+          return this.scales.x(cellStartX);
         })
-        .attr('stroke', d => d.net_flow > 0 ? '#e67e22' : '#2980b9')
+        .attr('y', d => {
+          // cell_y is the grid index, cell starts at cell_y * gridSize
+          // Y scale is inverted, so we use the TOP of the cell (cell_y + 1) * gridSize
+          const cellTopY = (d.cell_y + 1) * gridSize;
+          return this.scales.y(cellTopY);
+        })
+        .attr('width', Math.abs(this.scales.x(gridSize) - this.scales.x(0)))
+        .attr('height', Math.abs(this.scales.y(0) - this.scales.y(gridSize)))
+        .attr('fill', d => {
+          // Two colors: blue for origins (negative net flow), orange for destinations (positive)
+          return d.net_flow >= 0 ? positiveFlow : negativeFlow;
+        })
+        .attr('stroke', d => d.net_flow >= 0 ? positiveFlow : negativeFlow)
         .attr('stroke-width', 1)
-        .attr('opacity', 0.5)
-        .attr('rx', 4)
+        .attr('opacity', d => {
+          // Opacity based on magnitude of net flow
+          const magnitude = Math.abs(d.net_flow) / maxAbsNetFlow;
+          return 0.15 + magnitude * 0.65; // Range from 0.15 to 0.8
+        })
+        .attr('rx', 2)
         .on('mouseenter', (event, d) => {
           d3.select(event.target)
-            .attr('opacity', 0.8)
+            .attr('opacity', 0.9)
             .attr('stroke-width', 2);
           if (this.controller?.onCellHover) {
             this.controller.onCellHover({ ...d, mouseX: event.offsetX, mouseY: event.offsetY });
           }
         })
         .on('mouseleave', (event, d) => {
+          const magnitude = Math.abs(d.net_flow) / maxAbsNetFlow;
           d3.select(event.target)
-            .attr('opacity', 0.5)
+            .attr('opacity', 0.15 + magnitude * 0.65)
             .attr('stroke-width', 1);
           if (this.controller?.onCellHover) {
             this.controller.onCellHover(null);
           }
         }),
-      update => update
-        .transition()
-        .duration(300)
-        .attr('x', d => this.scales.x(d.x) - cellPixelSize / 2)
-        .attr('y', d => this.scales.y(d.y) - cellPixelSize / 2)
-        .attr('width', cellPixelSize)
-        .attr('height', cellPixelSize)
-        .attr('fill', d => {
-          if (d.net_flow > 0) {
-            return this.destColorScale(d.arrivals);
-          } else if (d.net_flow < 0) {
-            return this.originColorScale(d.departures);
-          }
-          return '#ccc';
-        }),
-      exit => exit
-        .transition()
-        .duration(200)
-        .attr('opacity', 0)
-        .remove()
+      update => {
+        const maxAbsNetFlow = d3.max(cells, d => Math.abs(d.net_flow)) || 1;
+        // Only transition color/opacity changes, not position (position only changes with grid size)
+        return update
+          .attr('fill', d => d.net_flow >= 0 ? positiveFlow : negativeFlow)
+          .attr('stroke', d => d.net_flow >= 0 ? positiveFlow : negativeFlow)
+          .transition()
+          .duration(300)
+          .attr('opacity', d => {
+            const magnitude = Math.abs(d.net_flow) / maxAbsNetFlow;
+            return 0.15 + magnitude * 0.65;
+          });
+      },
+      exit => exit.remove()
     );
   }
 
@@ -327,39 +353,146 @@ class FlowMapChart {
   }
 
   /**
+   * Create a unique gradient for a flow line.
+   * Green at origin (start) -> Red at destination (end)
+   */
+  createFlowGradient(flow, index) {
+    const gradientId = `flow-gradient-${index}`;
+    const gridSize = this.gridSize || 300;
+    
+    // Remove existing gradient if present
+    this.defs.select(`#${gradientId}`).remove();
+    
+    // Calculate centroid coordinates from cell indices for consistency
+    const startCentroidX = flow.start_cell_x * gridSize + gridSize / 2;
+    const startCentroidY = flow.start_cell_y * gridSize + gridSize / 2;
+    const endCentroidX = flow.end_cell_x * gridSize + gridSize / 2;
+    const endCentroidY = flow.end_cell_y * gridSize + gridSize / 2;
+    
+    const x1 = this.scales.x(startCentroidX);
+    const y1 = this.scales.y(startCentroidY);
+    const x2 = this.scales.x(endCentroidX);
+    const y2 = this.scales.y(endCentroidY);
+    
+    const gradient = this.defs.append('linearGradient')
+      .attr('id', gradientId)
+      .attr('gradientUnits', 'userSpaceOnUse')
+      .attr('x1', x1)
+      .attr('y1', y1)
+      .attr('x2', x2)
+      .attr('y2', y2);
+    
+    // Origin (start) color: green/cyan
+    gradient.append('stop')
+      .attr('offset', '0%')
+      .attr('stop-color', negativeFlow)
+      .attr('stop-opacity', 1);
+    
+    // // Middle transition
+    // gradient.append('stop')
+    //   .attr('offset', '50%')
+    //   .attr('stop-color', '#ffaa00')
+    //   .attr('stop-opacity', 1);
+    
+    // Destination (end) color: red/orange
+    gradient.append('stop')
+      .attr('offset', '100%')
+      .attr('stop-color', positiveFlow)
+      .attr('stop-opacity', 1);
+    
+    return `url(#${gradientId})`;
+  }
+
+  /**
+   * Aggregate flows to reduce visual clutter during busy hours.
+   * Groups flows and keeps only top N by volume, or aggregates nearby flows.
+   */
+  aggregateFlows(flows, maxFlowsToShow = 50) {
+    if (flows.length <= maxFlowsToShow) {
+      return { flows, isAggregated: false };
+    }
+    
+    // Sort by trips (volume) descending and take top flows
+    const sortedFlows = [...flows].sort((a, b) => b.trips - a.trips);
+    const topFlows = sortedFlows.slice(0, maxFlowsToShow);
+    
+    // Calculate statistics about what was filtered
+    const totalOriginal = flows.reduce((sum, f) => sum + f.trips, 0);
+    const totalShown = topFlows.reduce((sum, f) => sum + f.trips, 0);
+    const percentShown = Math.round((totalShown / totalOriginal) * 100);
+    
+    return {
+      flows: topFlows,
+      isAggregated: true,
+      originalCount: flows.length,
+      shownCount: topFlows.length,
+      percentTripsShown: percentShown
+    };
+  }
+
+  /**
    * Render flow arcs between origin-destination pairs.
    */
-  renderFlows(flows, maxTrips) {
+  renderFlows(flows, maxTrips, maxFlowsToShow = 50) {
     if (!flows || flows.length === 0) {
       this.flowsGroup.selectAll('*').remove();
+      this.aggregationInfo = null;
       return;
     }
+
+    // Aggregate flows if there are too many
+    const { flows: displayFlows, isAggregated, originalCount, shownCount, percentTripsShown } = 
+      this.aggregateFlows(flows, maxFlowsToShow);
+    
+    // Store aggregation info for external display
+    this.aggregationInfo = isAggregated ? {
+      originalCount,
+      shownCount,
+      percentTripsShown
+    } : null;
+    
+    // Notify controller about aggregation status
+    if (this.controller?.onAggregationChange) {
+      this.controller.onAggregationChange(this.aggregationInfo);
+    }
+
+    // Clear old gradients
+    this.defs.selectAll('linearGradient[id^="flow-gradient-"]').remove();
 
     // Width scale for flow arcs (log scale to handle large variations)
     const widthScale = d3.scaleLog()
       .domain([1, maxTrips || 100])
-      .range([1, 12])
+      .range([1.5, 10])
       .clamp(true);
 
-    // Color scale for flow volume
-    const colorScale = d3.scaleSequential(d3.interpolateYlOrRd)
-      .domain([0, maxTrips || 100]);
+    // Create gradients for each flow
+    displayFlows.forEach((flow, index) => {
+      this.createFlowGradient(flow, index);
+    });
 
     const flowPaths = this.flowsGroup.selectAll('path.flow')
-      .data(flows, d => `${d.start_cell_x}-${d.start_cell_y}-${d.end_cell_x}-${d.end_cell_y}`);
+      .data(displayFlows, d => `${d.start_cell_x}-${d.start_cell_y}-${d.end_cell_x}-${d.end_cell_y}`);
+
+    const gridSize = this.gridSize || 300;
 
     flowPaths.join(
       enter => enter.append('path')
         .attr('class', 'flow')
         .attr('d', d => {
-          const x1 = this.scales.x(d.start_x);
-          const y1 = this.scales.y(d.start_y);
-          const x2 = this.scales.x(d.end_x);
-          const y2 = this.scales.y(d.end_y);
+          // Calculate centroids from cell indices for consistency
+          const startCentroidX = d.start_cell_x * gridSize + gridSize / 2;
+          const startCentroidY = d.start_cell_y * gridSize + gridSize / 2;
+          const endCentroidX = d.end_cell_x * gridSize + gridSize / 2;
+          const endCentroidY = d.end_cell_y * gridSize + gridSize / 2;
+          
+          const x1 = this.scales.x(startCentroidX);
+          const y1 = this.scales.y(startCentroidY);
+          const x2 = this.scales.x(endCentroidX);
+          const y2 = this.scales.y(endCentroidY);
           return this.generateBezierPath(x1, y1, x2, y2);
         })
         .attr('fill', 'none')
-        .attr('stroke', d => colorScale(d.trips))
+        .attr('stroke', (d, i) => `url(#flow-gradient-${i})`)
         .attr('stroke-width', d => widthScale(d.trips))
         .attr('stroke-linecap', 'round')
         .attr('opacity', 0)
@@ -367,34 +500,46 @@ class FlowMapChart {
         .on('mouseenter', (event, d) => {
           d3.select(event.target)
             .attr('opacity', 1)
-            .attr('stroke-width', d => widthScale(d.trips) * 1.5);
+            .attr('stroke-width', widthScale(d.trips) * 1.5);
           if (this.controller?.onFlowHover) {
             this.controller.onFlowHover({ ...d, mouseX: event.offsetX, mouseY: event.offsetY });
           }
         })
         .on('mouseleave', (event, d) => {
           d3.select(event.target)
-            .attr('opacity', 0.7)
-            .attr('stroke-width', d => widthScale(d.trips));
+            .attr('opacity', 0.8)
+            .attr('stroke-width', widthScale(d.trips));
           if (this.controller?.onFlowHover) {
             this.controller.onFlowHover(null);
           }
         })
         .transition()
         .duration(500)
-        .attr('opacity', 0.7),
-      update => update
-        .transition()
-        .duration(300)
-        .attr('d', d => {
-          const x1 = this.scales.x(d.start_x);
-          const y1 = this.scales.y(d.start_y);
-          const x2 = this.scales.x(d.end_x);
-          const y2 = this.scales.y(d.end_y);
-          return this.generateBezierPath(x1, y1, x2, y2);
-        })
-        .attr('stroke', d => colorScale(d.trips))
-        .attr('stroke-width', d => widthScale(d.trips)),
+        .attr('opacity', 0.8),
+      update => {
+        // Update gradients for existing flows
+        update.each((d, i) => {
+          this.createFlowGradient(d, i);
+        });
+        const gridSize = this.gridSize || 300;
+        return update
+          .transition()
+          .duration(300)
+          .attr('d', d => {
+            const startCentroidX = d.start_cell_x * gridSize + gridSize / 2;
+            const startCentroidY = d.start_cell_y * gridSize + gridSize / 2;
+            const endCentroidX = d.end_cell_x * gridSize + gridSize / 2;
+            const endCentroidY = d.end_cell_y * gridSize + gridSize / 2;
+            
+            const x1 = this.scales.x(startCentroidX);
+            const y1 = this.scales.y(startCentroidY);
+            const x2 = this.scales.x(endCentroidX);
+            const y2 = this.scales.y(endCentroidY);
+            return this.generateBezierPath(x1, y1, x2, y2);
+          })
+          .attr('stroke', (d, i) => `url(#flow-gradient-${i})`)
+          .attr('stroke-width', d => widthScale(d.trips));
+      },
       exit => exit
         .transition()
         .duration(200)
