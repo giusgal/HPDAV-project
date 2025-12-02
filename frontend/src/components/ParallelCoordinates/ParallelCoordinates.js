@@ -51,7 +51,7 @@ function ParallelCoordinates() {
       chartInstanceRef.current.update(data, selectedParticipant);
       
       // Set default participant if not selected
-      if (!selectedParticipant && data.participants.length > 0) {
+      if (selectedParticipant === null && data.participants.length > 0) {
         console.log('Setting default participant:', data.participants[0].participantid);
         setSelectedParticipant(data.participants[0].participantid);
       }
@@ -86,7 +86,7 @@ function ParallelCoordinates() {
           <label htmlFor="participant-select">Person Id</label>
           <select
             id="participant-select"
-            value={selectedParticipant || ''}
+            value={selectedParticipant !== null ? selectedParticipant : ''}
             onChange={handleParticipantChange}
           >
             {data?.participants?.map(p => (

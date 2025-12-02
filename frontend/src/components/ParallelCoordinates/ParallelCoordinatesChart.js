@@ -91,7 +91,7 @@ class ParallelCoordinatesChart {
     });
 
     // Draw highlighted line for selected participant
-    if (selectedParticipantId) {
+    if (selectedParticipantId !== null && selectedParticipantId !== undefined) {
       const selectedParticipant = data.participants.find(
         p => p.participantid === selectedParticipantId
       );
