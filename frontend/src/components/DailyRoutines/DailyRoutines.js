@@ -19,29 +19,54 @@ function DailyRoutines() {
   const [participant1, setParticipant1] = useState('');
   const [participant2, setParticipant2] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
+  const [selectedMonth, setSelectedMonth] = useState('all');
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [tooltipContent, setTooltipContent] = useState(null);
+  const [availableMonths, setAvailableMonths] = useState([]);
   
   // First, fetch the list of participants
-  const { data: listData, loading: listLoading } = useApi(
+  const { data: listData, loading: listLoading, refetch: refetchList } = useApi(
     fetchParticipantRoutines, 
-    {}, 
+    { month: selectedMonth }, 
     true
   );
   
   // Then fetch detailed routines for selected participants
   const { data: routineData, loading: routineLoading, refetch: refetchRoutines } = useApi(
     fetchParticipantRoutines,
-    { participantIds: selectedIds.join(',') },
+    { participantIds: selectedIds.join(','), month: selectedMonth },
     false
   );
 
-  // Load routines when selection changes
+  // Reload list when month changes
+  useEffect(() => {
+    refetchList({ month: selectedMonth });
+  }, [selectedMonth, refetchList]);
+  
+  // Update available months when list data changes
+  useEffect(() => {
+    if (listData?.available_months) {
+      const months = [
+        { value: 'all', label: 'All Months', short: 'All' },
+        ...listData.available_months.map(m => {
+          const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          return {
+            value: `${m.year}-${m.month}`,
+            label: m.label,
+            short: monthNames[m.month]
+          };
+        })
+      ];
+      setAvailableMonths(months);
+    }
+  }, [listData]);
+
+  // Load routines when selection or month changes
   useEffect(() => {
     if (selectedIds.length > 0) {
-      refetchRoutines({ participantIds: selectedIds.join(',') });
+      refetchRoutines({ participantIds: selectedIds.join(','), month: selectedMonth });
     }
-  }, [selectedIds, refetchRoutines]);
+  }, [selectedIds, selectedMonth, refetchRoutines]);
 
   const handleCompare = () => {
     const ids = [];
@@ -115,11 +140,14 @@ function DailyRoutines() {
   useEffect(() => {
     if (!timelineRef.current || !routineData?.routines) return;
 
-    // Initialize chart if not already done
-    if (!chartRef.current) {
-      chartRef.current = new DailyRoutinesChart(timelineRef.current, chartController);
-      chartRef.current.initialize();
+    // Reinitialize chart when data changes
+    if (chartRef.current) {
+      chartRef.current.destroy();
+      chartRef.current = null;
     }
+    
+    chartRef.current = new DailyRoutinesChart(timelineRef.current, chartController);
+    chartRef.current.initialize();
 
     chartRef.current.update({
       routines: routineData.routines
@@ -176,6 +204,35 @@ function DailyRoutines() {
   return (
     <div className="daily-routines visualization-container">
       <div className="controls">
+        <div className="control-group month-control">
+          <label htmlFor="month-slider">Time Period:</label>
+          <div className="month-slider-container">
+            <input 
+              type="range"
+              id="month-slider"
+              min="0"
+              max={availableMonths.length - 1}
+              value={availableMonths.findIndex(m => m.value === selectedMonth)}
+              onChange={(e) => {
+                const idx = parseInt(e.target.value);
+                setSelectedMonth(availableMonths[idx]?.value || 'all');
+              }}
+              className="month-slider"
+              disabled={availableMonths.length === 0}
+            />
+            <div className="month-labels">
+              {availableMonths.map((month, idx) => (
+                <span 
+                  key={month.value} 
+                  className={`month-label ${selectedMonth === month.value ? 'active' : ''}`}
+                  onClick={() => setSelectedMonth(month.value)}
+                >
+                  {month.short}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
         <div className="control-group">
           <label htmlFor="participant1">Participant 1:</label>
           <select 
@@ -240,6 +297,9 @@ function DailyRoutines() {
 
       {routineData?.routines && Object.keys(routineData.routines).length > 0 && (
         <>
+          <div className="selected-period-banner">
+            <strong>Showing data for:</strong> {availableMonths.find(m => m.value === selectedMonth)?.label || 'All Months'}
+          </div>
           <div className="timeline-container" ref={timelineRef}></div>
           <div ref={tooltipRef} className="tooltip" style={{ display: 'none' }}>
             {renderTooltipContent()}
