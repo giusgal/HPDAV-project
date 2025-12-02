@@ -1209,6 +1209,8 @@ def flow_map():
     - day_type: 'all', 'weekday', 'weekend' (default: 'all')
     - purpose: 'all', 'Work/Home Commute', 'Eating', 'Recreation (Social Gathering)', etc. (default: 'all')
     - min_trips: Minimum trips to show a flow (default: 5)
+    - start_date: Start date for filtering (YYYY-MM-DD, optional) - NOTE: currently not implemented due to MV structure
+    - end_date: End date for filtering (YYYY-MM-DD, optional) - NOTE: currently not implemented due to MV structure
     """
     global _flow_map_cache
     
@@ -1216,8 +1218,11 @@ def flow_map():
     day_type = request.args.get('day_type', 'all', type=str)
     purpose = request.args.get('purpose', 'all', type=str)
     min_trips = request.args.get('min_trips', 5, type=int)
+    start_date = request.args.get('start_date', None, type=str)
+    end_date = request.args.get('end_date', None, type=str)
     
-    cache_key = (grid_size, day_type, purpose, min_trips)
+    # Note: Date filtering not yet implemented in MV queries, but we track the params
+    cache_key = (grid_size, day_type, purpose, min_trips, start_date, end_date)
     if cache_key in _flow_map_cache:
         logger.info(f"Using cached flow map data for key={cache_key}")
         return jsonify(_flow_map_cache[cache_key])
@@ -1230,8 +1235,64 @@ def flow_map():
             'grid_size': grid_size,
             'day_type': day_type,
             'purpose': purpose,
-            'min_trips': min_trips
+            'min_trips': min_trips,
+            'start_date': start_date,
+            'end_date': end_date
         }
+        
+        # Get available date range from traveljournal
+        t0 = time.time()
+        cur.execute("""
+            SELECT 
+                MIN(travelstarttime::date) as min_date,
+                MAX(travelstarttime::date) as max_date
+            FROM traveljournal
+        """)
+        date_range = cur.fetchone()
+        results['available_dates'] = {
+            'min': str(date_range['min_date']) if date_range['min_date'] else None,
+            'max': str(date_range['max_date']) if date_range['max_date'] else None
+        }
+        logger.info(f"Date range query time = {time.time() - t0:.3f}s")
+        
+        # If no date range specified, return just metadata (fast path for initial load)
+        # This prevents expensive full-table scans on first page load
+        if not start_date and not end_date:
+            logger.info("No date range specified - returning metadata only (fast path)")
+            # Get city bounds from buildings
+            t0 = time.time()
+            cur.execute("""
+                SELECT 
+                    MIN(location[0]) as min_x, MAX(location[0]) as max_x,
+                    MIN(location[1]) as min_y, MAX(location[1]) as max_y
+                FROM apartments
+            """)
+            bounds = cur.fetchone()
+            results['bounds'] = {
+                'min_x': bounds['min_x'],
+                'max_x': bounds['max_x'],
+                'min_y': bounds['min_y'],
+                'max_y': bounds['max_y']
+            }
+            logger.info(f"Bounds query time = {time.time() - t0:.3f}s")
+            
+            # Get purpose options
+            cur.execute("SELECT DISTINCT purpose::text as purpose FROM traveljournal ORDER BY purpose")
+            results['purposes'] = [{'purpose': row['purpose']} for row in cur.fetchall()]
+            
+            # Return empty flows/cells for initial load
+            results['flows'] = []
+            results['cells'] = []
+            results['buildings'] = []
+            results['statistics'] = {
+                'total_flows': 0,
+                'total_trips': 0,
+                'max_trips': 0
+            }
+            
+            cur.close()
+            return_db_connection(conn)
+            return jsonify(results)
         
         # Get city bounds from buildings
         t0 = time.time()
@@ -1261,6 +1322,25 @@ def flow_map():
         mv_exists = cur.fetchone()['mv_exists']
         logger.info(f"MV check time = {time.time() - t0:.3f}s, exists = {mv_exists}")
         
+        # Check if trip_date column exists in MV
+        mv_has_date = False
+        if mv_exists:
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT 1 
+                    FROM pg_attribute a
+                    JOIN pg_class c ON a.attrelid = c.oid
+                    JOIN pg_namespace n ON c.relnamespace = n.oid
+                    WHERE n.nspname = 'public'
+                      AND c.relname = 'trip_coordinates'
+                      AND a.attname = 'trip_date'
+                      AND a.attnum > 0
+                      AND NOT a.attisdropped
+                ) as has_date
+            """)
+            mv_has_date = cur.fetchone()['has_date']
+            logger.info(f"MV has trip_date column: {mv_has_date}")
+        
         # Build day filter
         if day_type == 'weekday':
             day_clause = "AND day_of_week BETWEEN 1 AND 5"
@@ -1274,6 +1354,18 @@ def flow_map():
             purpose_clause = f"AND purpose = '{purpose}'"
         else:
             purpose_clause = ""
+        
+        # Build date range filter (only if MV has trip_date column)
+        date_clause = ""
+        if mv_has_date:
+            if start_date:
+                date_clause += f" AND trip_date >= '{start_date}'::date"
+            if end_date:
+                date_clause += f" AND trip_date <= '{end_date}'::date"
+        else:
+            # Log a warning if date filtering was requested but not available
+            if start_date or end_date:
+                logger.warning("Date filtering requested but trip_date column not in MV. Run setup.sh to recreate MV with date support.")
         
         if mv_exists:
             # Use fast materialized view query
@@ -1296,7 +1388,7 @@ def flow_map():
                       AND start_y IS NOT NULL AND end_y IS NOT NULL
                       AND NOT (FLOOR(start_x / {grid_size}) = FLOOR(end_x / {grid_size})
                            AND FLOOR(start_y / {grid_size}) = FLOOR(end_y / {grid_size}))
-                      {day_clause} {purpose_clause}
+                      {day_clause} {purpose_clause} {date_clause}
                 )
                 SELECT 
                     hour_bucket,
@@ -1332,7 +1424,7 @@ def flow_map():
                         COUNT(*) as departures
                     FROM trip_coordinates
                     WHERE start_x IS NOT NULL AND start_y IS NOT NULL
-                      {day_clause} {purpose_clause}
+                      {day_clause} {purpose_clause} {date_clause}
                     GROUP BY hour_bucket, FLOOR(start_x / {grid_size}), FLOOR(start_y / {grid_size})
                 ),
                 destinations AS (
@@ -1345,7 +1437,7 @@ def flow_map():
                         COUNT(*) as arrivals
                     FROM trip_coordinates
                     WHERE end_x IS NOT NULL AND end_y IS NOT NULL
-                      {day_clause} {purpose_clause}
+                      {day_clause} {purpose_clause} {date_clause}
                     GROUP BY hour_bucket, FLOOR(end_x / {grid_size}), FLOOR(end_y / {grid_size})
                 )
                 SELECT 
@@ -1368,6 +1460,11 @@ def flow_map():
             # Fallback: Use LATERAL join (much faster than correlated subqueries)
             day_clause_tj = day_clause.replace("day_of_week", "EXTRACT(DOW FROM t.travelstarttime)::int")
             purpose_clause_tj = purpose_clause.replace("purpose", "t.purpose::text")
+            date_clause_tj = ""
+            if start_date:
+                date_clause_tj += f" AND t.travelstarttime::date >= '{start_date}'::date"
+            if end_date:
+                date_clause_tj += f" AND t.travelstarttime::date <= '{end_date}'::date"
             
             flows_query = f"""
                 WITH trip_coords AS (
@@ -1400,7 +1497,7 @@ def flow_map():
                         ORDER BY psl.timestamp ASC
                         LIMIT 1
                     ) end_loc ON true
-                    WHERE 1=1 {day_clause_tj} {purpose_clause_tj}
+                    WHERE 1=1 {day_clause_tj} {purpose_clause_tj} {date_clause_tj}
                 ),
                 gridded_trips AS (
                     SELECT 
@@ -1471,7 +1568,7 @@ def flow_map():
                         ORDER BY psl.timestamp ASC
                         LIMIT 1
                     ) end_loc ON true
-                    WHERE 1=1 {day_clause_tj} {purpose_clause_tj}
+                    WHERE 1=1 {day_clause_tj} {purpose_clause_tj} {date_clause_tj}
                 ),
                 origins AS (
                     SELECT 

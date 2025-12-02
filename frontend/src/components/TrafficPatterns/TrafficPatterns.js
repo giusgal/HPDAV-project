@@ -23,6 +23,8 @@ const DAY_TYPES = [
   { id: 'weekend', label: 'Weekends' },
 ];
 
+const DEBOUNCE_DELAY = 800; // ms delay for date inputs
+
 function TrafficPatterns() {
   const svgRef = useRef(null);
   const hourlyChartRef = useRef(null);
@@ -31,13 +33,31 @@ function TrafficPatterns() {
   // Chart instances
   const chartRef = useRef(null);
   const hourlyChartInstanceRef = useRef(null);
+  const datesInitialized = useRef(false);
   
   const [selectedMetric, setSelectedMetric] = useState('visits');
   const [timePeriod, setTimePeriod] = useState('all');
   const [dayType, setDayType] = useState('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [debouncedStartDate, setDebouncedStartDate] = useState('');
+  const [debouncedEndDate, setDebouncedEndDate] = useState('');
   const [hoveredBubble, setHoveredBubble] = useState(null);
+
+  // Debounce date inputs
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedStartDate(startDate);
+    }, DEBOUNCE_DELAY);
+    return () => clearTimeout(timer);
+  }, [startDate]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedEndDate(endDate);
+    }, DEBOUNCE_DELAY);
+    return () => clearTimeout(timer);
+  }, [endDate]);
 
   // Fetch data
   const { data, loading, error, refetch } = useApi(
@@ -45,16 +65,29 @@ function TrafficPatterns() {
     { 
       timePeriod, 
       dayType,
-      startDate,
-      endDate
+      startDate: debouncedStartDate,
+      endDate: debouncedEndDate
     },
     true
   );
 
+  // Initialize dates from available data when it first loads
+  useEffect(() => {
+    if (data?.available_dates && !datesInitialized.current) {
+      if (data.available_dates.min && data.available_dates.max) {
+        setStartDate(data.available_dates.min);
+        setEndDate(data.available_dates.max);
+        setDebouncedStartDate(data.available_dates.min);
+        setDebouncedEndDate(data.available_dates.max);
+        datesInitialized.current = true;
+      }
+    }
+  }, [data?.available_dates]);
+
   // Refetch when parameters change
   useEffect(() => {
-    refetch({ timePeriod, dayType, startDate, endDate });
-  }, [timePeriod, dayType, startDate, endDate]);
+    refetch({ timePeriod, dayType, startDate: debouncedStartDate, endDate: debouncedEndDate });
+  }, [timePeriod, dayType, debouncedStartDate, debouncedEndDate]);
 
   const { data: buildingsData } = useApi(fetchBuildingsMapData, {}, true);
 

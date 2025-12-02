@@ -51,7 +51,17 @@ class FlowMapChart {
 
     this.svg
       .attr('width', '100%')
-      .attr('height', '100%');
+      .attr('height', '100%')
+      .style('cursor', 'default')
+      .on('click', (event) => {
+        // Only clear selection if clicking directly on the SVG background
+        if (event.target === this.container) {
+          if (this.controller?.onCellClick) {
+            // Pass null to indicate deselection
+            this.controller.onCellClick({ cell_x: null, cell_y: null, _clear: true });
+          }
+        }
+      });
 
     // Create defs for gradients, markers, and filters
     this.defs = this.svg.append('defs');
@@ -101,8 +111,11 @@ class FlowMapChart {
   /**
    * Update the chart with new data.
    */
-  update({ flows, cells, buildings, bounds, showCells, showFlows, currentHour, maxTrips, maxFlowsToShow = 50, gridSize = 300 }) {
+  update({ flows, cells, buildings, bounds, showCells, showFlows, currentHour, maxTrips, maxFlowsToShow = 50, gridSize = 300, selectedCell = null }) {
     if (!bounds) return;
+
+    // Store selectedCell for use in rendering
+    this.selectedCell = selectedCell;
 
     // Detect if grid size changed - if so, clear cells and flows immediately (no transitions)
     const gridSizeChanged = this._lastGridSize !== undefined && this._lastGridSize !== gridSize;
@@ -263,9 +276,56 @@ class FlowMapChart {
     
     // Calculate max values for opacity scaling
     const maxAbsNetFlow = d3.max(cells, d => Math.abs(d.net_flow)) || 1;
+    
+    // Store maxAbsNetFlow for use in event handlers
+    this._maxAbsNetFlow = maxAbsNetFlow;
+    
+    // Check if a cell is selected
+    const selectedCell = this.selectedCell;
+    const hasSelection = selectedCell !== null;
+
+    // Helper to check if a cell is the selected one (uses current this.selectedCell)
+    const isSelectedCell = (d) => {
+      const sel = this.selectedCell;
+      if (!sel) return false;
+      return d.cell_x === sel.cell_x && d.cell_y === sel.cell_y;
+    };
+
+    // Helper to check if a cell is connected to the selected cell via flows (uses current this.selectedCell)
+    const isConnectedCell = (d) => {
+      const sel = this.selectedCell;
+      if (!sel || !this._currentFlows) return false;
+      return this._currentFlows.some(f => 
+        (f.start_cell_x === sel.cell_x && f.start_cell_y === sel.cell_y &&
+         f.end_cell_x === d.cell_x && f.end_cell_y === d.cell_y) ||
+        (f.end_cell_x === sel.cell_x && f.end_cell_y === sel.cell_y &&
+         f.start_cell_x === d.cell_x && f.start_cell_y === d.cell_y)
+      );
+    };
+
+    // Calculate opacity for a cell based on selection state (uses current this.selectedCell)
+    const getCellOpacity = (d) => {
+      const maxNet = this._maxAbsNetFlow || 1;
+      const baseMagnitude = Math.abs(d.net_flow) / maxNet;
+      const baseOpacity = 0.15 + baseMagnitude * 0.65;
+      
+      const sel = this.selectedCell;
+      if (!sel) return baseOpacity;
+      if (isSelectedCell(d)) return 0.95;
+      if (isConnectedCell(d)) return Math.max(baseOpacity, 0.7);
+      return 0.1; // Dim unrelated cells
+    };
+
+    // Store these functions for use in event handlers
+    this._isSelectedCell = isSelectedCell;
+    this._isConnectedCell = isConnectedCell;
+    this._getCellOpacity = getCellOpacity;
 
     const cellRects = this.cellsGroup.selectAll('rect.cell')
       .data(cells, d => `${d.cell_x}-${d.cell_y}`);
+
+    // Reference to this for event handlers
+    const self = this;
 
     cellRects.join(
       enter => enter.append('rect')
@@ -287,29 +347,39 @@ class FlowMapChart {
           // Two colors: blue for origins (negative net flow), orange for destinations (positive)
           return d.net_flow >= 0 ? positiveFlow : negativeFlow;
         })
-        .attr('stroke', d => d.net_flow >= 0 ? positiveFlow : negativeFlow)
-        .attr('stroke-width', 1)
-        .attr('opacity', d => {
-          // Opacity based on magnitude of net flow
-          const magnitude = Math.abs(d.net_flow) / maxAbsNetFlow;
-          return 0.15 + magnitude * 0.65; // Range from 0.15 to 0.8
+        .attr('stroke', d => {
+          if (isSelectedCell(d)) return '#333';
+          return d.net_flow >= 0 ? positiveFlow : negativeFlow;
         })
+        .attr('stroke-width', d => isSelectedCell(d) ? 3 : 1)
+        .attr('opacity', d => getCellOpacity(d))
         .attr('rx', 2)
-        .on('mouseenter', (event, d) => {
-          d3.select(event.target)
-            .attr('opacity', 0.9)
-            .attr('stroke-width', 2);
-          if (this.controller?.onCellHover) {
-            this.controller.onCellHover({ ...d, mouseX: event.offsetX, mouseY: event.offsetY });
+        .attr('cursor', 'pointer')
+        .on('mouseenter', function(event, d) {
+          if (!self._isSelectedCell(d)) {
+            d3.select(this)
+              .attr('opacity', 0.9)
+              .attr('stroke-width', 2);
+          }
+          if (self.controller?.onCellHover) {
+            self.controller.onCellHover({ ...d, mouseX: event.offsetX, mouseY: event.offsetY });
           }
         })
-        .on('mouseleave', (event, d) => {
-          const magnitude = Math.abs(d.net_flow) / maxAbsNetFlow;
-          d3.select(event.target)
-            .attr('opacity', 0.15 + magnitude * 0.65)
-            .attr('stroke-width', 1);
-          if (this.controller?.onCellHover) {
-            this.controller.onCellHover(null);
+        .on('mouseleave', function(event, d) {
+          // Always restore to the correct opacity based on current selection state
+          const opacity = self._getCellOpacity(d);
+          const isSelected = self._isSelectedCell(d);
+          d3.select(this)
+            .attr('opacity', opacity)
+            .attr('stroke-width', isSelected ? 3 : 1);
+          if (self.controller?.onCellHover) {
+            self.controller.onCellHover(null);
+          }
+        })
+        .on('click', function(event, d) {
+          event.stopPropagation();
+          if (self.controller?.onCellClick) {
+            self.controller.onCellClick(d);
           }
         }),
       update => {
@@ -317,13 +387,15 @@ class FlowMapChart {
         // Only transition color/opacity changes, not position (position only changes with grid size)
         return update
           .attr('fill', d => d.net_flow >= 0 ? positiveFlow : negativeFlow)
-          .attr('stroke', d => d.net_flow >= 0 ? positiveFlow : negativeFlow)
+          .attr('stroke', d => {
+            if (isSelectedCell(d)) return '#333';
+            return d.net_flow >= 0 ? positiveFlow : negativeFlow;
+          })
+          .attr('stroke-width', d => isSelectedCell(d) ? 3 : 1)
+          .attr('cursor', 'pointer')
           .transition()
           .duration(300)
-          .attr('opacity', d => {
-            const magnitude = Math.abs(d.net_flow) / maxAbsNetFlow;
-            return 0.15 + magnitude * 0.65;
-          });
+          .attr('opacity', d => getCellOpacity(d));
       },
       exit => exit.remove()
     );
@@ -436,6 +508,7 @@ class FlowMapChart {
   renderFlows(flows, maxTrips, maxFlowsToShow = 50) {
     if (!flows || flows.length === 0) {
       this.flowsGroup.selectAll('*').remove();
+      this._currentFlows = [];
       this.aggregationInfo = null;
       return;
     }
@@ -443,6 +516,9 @@ class FlowMapChart {
     // Aggregate flows if there are too many
     const { flows: displayFlows, isAggregated, originalCount, shownCount, percentTripsShown } = 
       this.aggregateFlows(flows, maxFlowsToShow);
+    
+    // Store current flows for cell connectivity checking
+    this._currentFlows = displayFlows;
     
     // Store aggregation info for external display
     this.aggregationInfo = isAggregated ? {
@@ -456,6 +532,30 @@ class FlowMapChart {
       this.controller.onAggregationChange(this.aggregationInfo);
     }
 
+    // Check if a cell is selected (for initial render)
+    const selectedCell = this.selectedCell;
+    const hasSelection = selectedCell !== null;
+
+    // Helper to check if a flow is connected to the selected cell (uses current this.selectedCell)
+    const isConnectedFlow = (d) => {
+      const sel = this.selectedCell;
+      if (!sel) return true; // No selection means all flows are "connected"
+      return (d.start_cell_x === sel.cell_x && d.start_cell_y === sel.cell_y) ||
+             (d.end_cell_x === sel.cell_x && d.end_cell_y === sel.cell_y);
+    };
+
+    // Calculate opacity for a flow based on selection state (uses current this.selectedCell)
+    const getFlowOpacity = (d) => {
+      const sel = this.selectedCell;
+      if (!sel) return 0.8;
+      if (isConnectedFlow(d)) return 0.95;
+      return 0.08; // Dim unrelated flows
+    };
+
+    // Store these functions for use in event handlers
+    this._isConnectedFlow = isConnectedFlow;
+    this._getFlowOpacity = getFlowOpacity;
+
     // Clear old gradients
     this.defs.selectAll('linearGradient[id^="flow-gradient-"]').remove();
 
@@ -464,6 +564,9 @@ class FlowMapChart {
       .domain([1, maxTrips || 100])
       .range([1.5, 10])
       .clamp(true);
+    
+    // Store widthScale for event handlers
+    this._flowWidthScale = widthScale;
 
     // Create gradients for each flow
     displayFlows.forEach((flow, index) => {
@@ -474,6 +577,9 @@ class FlowMapChart {
       .data(displayFlows, d => `${d.start_cell_x}-${d.start_cell_y}-${d.end_cell_x}-${d.end_cell_y}`);
 
     const gridSize = this.gridSize || 300;
+    
+    // Reference to this for event handlers
+    const self = this;
 
     flowPaths.join(
       enter => enter.append('path')
@@ -493,29 +599,33 @@ class FlowMapChart {
         })
         .attr('fill', 'none')
         .attr('stroke', (d, i) => `url(#flow-gradient-${i})`)
-        .attr('stroke-width', d => widthScale(d.trips))
+        .attr('stroke-width', d => isConnectedFlow(d) && hasSelection ? widthScale(d.trips) * 1.3 : widthScale(d.trips))
         .attr('stroke-linecap', 'round')
         .attr('opacity', 0)
-        .attr('filter', 'url(#flow-glow)')
-        .on('mouseenter', (event, d) => {
-          d3.select(event.target)
+        .attr('filter', d => isConnectedFlow(d) || !hasSelection ? 'url(#flow-glow)' : 'none')
+        .on('mouseenter', function(event, d) {
+          d3.select(this)
             .attr('opacity', 1)
-            .attr('stroke-width', widthScale(d.trips) * 1.5);
-          if (this.controller?.onFlowHover) {
-            this.controller.onFlowHover({ ...d, mouseX: event.offsetX, mouseY: event.offsetY });
+            .attr('stroke-width', self._flowWidthScale(d.trips) * 1.5);
+          if (self.controller?.onFlowHover) {
+            self.controller.onFlowHover({ ...d, mouseX: event.offsetX, mouseY: event.offsetY });
           }
         })
-        .on('mouseleave', (event, d) => {
-          d3.select(event.target)
-            .attr('opacity', 0.8)
-            .attr('stroke-width', widthScale(d.trips));
-          if (this.controller?.onFlowHover) {
-            this.controller.onFlowHover(null);
+        .on('mouseleave', function(event, d) {
+          // Always restore to the correct opacity based on current selection state
+          const opacity = self._getFlowOpacity(d);
+          const isConnected = self._isConnectedFlow(d);
+          const hasSel = self.selectedCell !== null;
+          d3.select(this)
+            .attr('opacity', opacity)
+            .attr('stroke-width', isConnected && hasSel ? self._flowWidthScale(d.trips) * 1.3 : self._flowWidthScale(d.trips));
+          if (self.controller?.onFlowHover) {
+            self.controller.onFlowHover(null);
           }
         })
         .transition()
         .duration(500)
-        .attr('opacity', 0.8),
+        .attr('opacity', d => getFlowOpacity(d)),
       update => {
         // Update gradients for existing flows
         update.each((d, i) => {
@@ -538,7 +648,9 @@ class FlowMapChart {
             return this.generateBezierPath(x1, y1, x2, y2);
           })
           .attr('stroke', (d, i) => `url(#flow-gradient-${i})`)
-          .attr('stroke-width', d => widthScale(d.trips));
+          .attr('stroke-width', d => isConnectedFlow(d) && hasSelection ? widthScale(d.trips) * 1.3 : widthScale(d.trips))
+          .attr('filter', d => isConnectedFlow(d) || !hasSelection ? 'url(#flow-glow)' : 'none')
+          .attr('opacity', d => getFlowOpacity(d));
       },
       exit => exit
         .transition()

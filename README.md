@@ -28,6 +28,30 @@ chmod +x setup.sh
 ```
 Once the script finishes, you can access the application at: `http://localhost:5000`
 
+## Database Maintenance
+
+### Diagnostic Script
+To verify that all database views, indexes, and tables are properly set up for optimal performance:
+
+```bash
+docker compose exec -T db psql -U myuser -d hpdavDB < check_db_setup.sql
+```
+
+This script checks:
+- Materialized view existence and structure
+- Required indexes for query optimization
+- Table row counts and date ranges
+- Query performance benchmarks
+
+### Recreate Materialized View
+If the diagnostic script reports missing columns (like `trip_date`) or indexes, recreate the materialized view:
+
+```bash
+docker compose exec -T db psql -U myuser -d hpdavDB < recreate_mv.sql
+```
+
+This will drop and recreate the `trip_coordinates` view with all required columns and indexes for date filtering and optimized queries.
+
 ## Goal
 
 In this project, we address the mini-challenge 2 of the 2022 VAST Challenge. Bellow is the description of it.

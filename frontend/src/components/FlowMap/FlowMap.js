@@ -11,7 +11,8 @@ const DAY_TYPES = [
 ];
 
 const MIN_GRID_SIZE = 100;
-const MAX_GRID_SIZE = 600;
+const MAX_GRID_SIZE = 900;
+const DEBOUNCE_DELAY = 800; // ms delay for date inputs
 
 /**
  * Parse a PostgreSQL polygon string into an array of {x, y} points.
@@ -82,8 +83,14 @@ function FlowMap() {
   const [hoveredCell, setHoveredCell] = useState(null);
   const [maxFlowsToShow, setMaxFlowsToShow] = useState(50);
   const [aggregationInfo, setAggregationInfo] = useState(null);
+  const [selectedCell, setSelectedCell] = useState(null);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [debouncedStartDate, setDebouncedStartDate] = useState('');
+  const [debouncedEndDate, setDebouncedEndDate] = useState('');
   
   const animationRef = useRef(null);
+  const datesInitialized = useRef(false);
   
   // Debounce grid size
   useEffect(() => {
@@ -96,33 +103,63 @@ function FlowMap() {
     return () => clearTimeout(timer);
   }, [gridSizeInput]);
   
+  // Debounce date inputs
+  useEffect(() => {
+    console.log('FlowMap: startDate changed to:', startDate);
+    const timer = setTimeout(() => {
+      console.log('FlowMap: Setting debouncedStartDate to:', startDate);
+      setDebouncedStartDate(startDate);
+    }, DEBOUNCE_DELAY);
+    return () => clearTimeout(timer);
+  }, [startDate]);
+  
+  useEffect(() => {
+    console.log('FlowMap: endDate changed to:', endDate);
+    const timer = setTimeout(() => {
+      console.log('FlowMap: Setting debouncedEndDate to:', endDate);
+      setDebouncedEndDate(endDate);
+    }, DEBOUNCE_DELAY);
+    return () => clearTimeout(timer);
+  }, [endDate]);
+  
   // Fetch data - autoFetch=false, we control fetching via useEffect
   const { data, loading, error, refetch } = useApi(
     fetchFlowMapData, 
-    { gridSize: debouncedGridSize, dayType, purpose, minTrips },
+    { gridSize: debouncedGridSize, dayType, purpose, minTrips, startDate: debouncedStartDate, endDate: debouncedEndDate },
     false  // Don't auto-fetch on mount
   );
   
-  // Single effect to handle all fetching - skip the first render in Strict Mode
-  const isFirstRender = useRef(true);
+  // Initialize dates from available data when it first loads
+  useEffect(() => {
+    if (data?.available_dates && !datesInitialized.current) {
+      if (data.available_dates.min && data.available_dates.max) {
+        setStartDate(data.available_dates.min);
+        setEndDate(data.available_dates.max);
+        setDebouncedStartDate(data.available_dates.min);
+        setDebouncedEndDate(data.available_dates.max);
+        datesInitialized.current = true;
+      }
+    }
+  }, [data?.available_dates]);
+  
+  // Single effect to handle all fetching
   const lastParams = useRef(null);
   
   useEffect(() => {
-    const currentParams = JSON.stringify({ debouncedGridSize, dayType, purpose, minTrips });
+    const currentParams = JSON.stringify({ debouncedGridSize, dayType, purpose, minTrips, debouncedStartDate, debouncedEndDate });
     
     // Skip if params haven't changed (prevents duplicate fetches)
     if (lastParams.current === currentParams) {
+      console.log('FlowMap: Skipping fetch - params unchanged');
       return;
     }
     
-    // In Strict Mode, first render happens twice - skip if it's the unmount/remount cycle
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-    }
-    
+    console.log('FlowMap: Fetching with params:', { debouncedGridSize, dayType, purpose, minTrips, debouncedStartDate, debouncedEndDate });
     lastParams.current = currentParams;
-    refetch({ gridSize: debouncedGridSize, dayType, purpose, minTrips });
-  }, [debouncedGridSize, dayType, purpose, minTrips, refetch]);
+    
+    // Always fetch - the backend handles the "no dates" case by returning metadata only
+    refetch({ gridSize: debouncedGridSize, dayType, purpose, minTrips, startDate: debouncedStartDate, endDate: debouncedEndDate });
+  }, [debouncedGridSize, dayType, purpose, minTrips, debouncedStartDate, debouncedEndDate, refetch]);
   
   // Compute bounds from buildings
   const bounds = useMemo(() => {
@@ -141,8 +178,13 @@ function FlowMap() {
   
   // Filter flows by current hour
   const hourlyFlows = useMemo(() => {
-    if (!data?.flows) return [];
-    return data.flows.filter(f => f.hour_bucket === currentHour);
+    if (!data?.flows) {
+      console.log('FlowMap: No flows data available');
+      return [];
+    }
+    const filtered = data.flows.filter(f => f.hour_bucket === currentHour);
+    console.log(`FlowMap: Filtered ${filtered.length} flows for hour ${currentHour} from ${data.flows.length} total flows`);
+    return filtered;
   }, [data, currentHour]);
   
   // Filter cells by current hour
@@ -171,6 +213,20 @@ function FlowMap() {
       onFlowHover: (flow) => setHoveredFlow(flow),
       onCellHover: (cell) => setHoveredCell(cell),
       onAggregationChange: (info) => setAggregationInfo(info),
+      onCellClick: (cell) => {
+        // Clear selection if clicking background or same cell
+        if (cell._clear) {
+          setSelectedCell(null);
+          return;
+        }
+        // Toggle selection: if clicking the same cell, deselect; otherwise select new cell
+        setSelectedCell(prev => {
+          if (prev && prev.cell_x === cell.cell_x && prev.cell_y === cell.cell_y) {
+            return null;
+          }
+          return cell;
+        });
+      },
     });
     chartRef.current.initialize();
     
@@ -183,12 +239,16 @@ function FlowMap() {
   
   // Update chart when data changes
   useEffect(() => {
-    if (!chartRef.current || !bounds) return;
+    if (!chartRef.current || !bounds) {
+      console.log('FlowMap: Skipping chart update - no chart or bounds');
+      return;
+    }
     
     // Only update if we have data and use the gridSize that matches the data
     // This prevents scaling issues when slider changes but data hasn't loaded yet
     const dataGridSize = data?.grid_size || debouncedGridSize;
     
+    console.log('FlowMap: Updating chart with', hourlyFlows.length, 'flows and', hourlyCells.length, 'cells');
     chartRef.current.update({
       flows: hourlyFlows,
       cells: hourlyCells,
@@ -200,8 +260,9 @@ function FlowMap() {
       maxTrips: data?.statistics?.max_trips || 100,
       maxFlowsToShow,
       gridSize: dataGridSize,
+      selectedCell,
     });
-  }, [hourlyFlows, hourlyCells, data?.buildings, bounds, showCells, showFlows, currentHour, data?.statistics, maxFlowsToShow, data?.grid_size, debouncedGridSize]);
+  }, [hourlyFlows, hourlyCells, data?.buildings, bounds, showCells, showFlows, currentHour, data?.statistics, maxFlowsToShow, data?.grid_size, debouncedGridSize, selectedCell]);
   
   // Handle grid size slider
   const handleGridSizeChange = useCallback((e) => {
@@ -298,6 +359,32 @@ function FlowMap() {
               ))}
             </select>
           </div>
+          
+          <div className="filter-group">
+            <label>Date Range:</label>
+            <div className="date-range-inputs column">
+              <div className="date-input-row">
+                <span className="date-label">From:</span>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  min={data?.available_dates?.min}
+                  max={data?.available_dates?.max}
+                />
+              </div>
+              <div className="date-input-row">
+                <span className="date-label">To:</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  min={data?.available_dates?.min}
+                  max={data?.available_dates?.max}
+                />
+              </div>
+            </div>
+          </div>
         </div>
         
         <div className="control-section">
@@ -388,34 +475,82 @@ function FlowMap() {
           </div>
         )}
         
+        {/* Cell Selection Info */}
+        {selectedCell && (
+          <div className="control-section selection-section">
+            <h3>Selected Cell</h3>
+            <div className="selection-info">
+              <div className="selection-details">
+                <div className="selection-row">
+                  <span>Departures:</span>
+                  <span>{selectedCell.departures}</span>
+                </div>
+                <div className="selection-row">
+                  <span>Arrivals:</span>
+                  <span>{selectedCell.arrivals}</span>
+                </div>
+                <div className="selection-row">
+                  <span>Net Flow:</span>
+                  <span className={selectedCell.net_flow >= 0 ? 'positive' : 'negative'}>
+                    {selectedCell.net_flow >= 0 ? '+' : ''}{selectedCell.net_flow}
+                  </span>
+                </div>
+              </div>
+              <button 
+                className="clear-selection-btn"
+                onClick={() => setSelectedCell(null)}
+              >
+                ✕ Clear Selection
+              </button>
+            </div>
+          </div>
+        )}
+        
         {/* Legend */}
         <div className="control-section legend-section">
           <h3>Legend</h3>
           <div className="legend-items">
             <div className="legend-item">
               <div className="legend-icon flow-arc-gradient"></div>
-              <span>Flow Arc (green→red = start→end)</span>
+              <span>Flow direction (origin → destination)</span>
+            </div>
+            <div className="legend-item">
+              <div className="legend-icon arc-thickness"></div>
+              <span>Arc thickness = trip volume</span>
             </div>
             <div className="legend-item">
               <div className="legend-icon origin-cell"></div>
-              <span>Net Origin (departures &gt; arrivals)</span>
+              <span>Net origin cell (more departures)</span>
             </div>
             <div className="legend-item">
               <div className="legend-icon destination-cell"></div>
-              <span>Net Destination (arrivals &gt; departures)</span>
+              <span>Net destination cell (more arrivals)</span>
+            </div>
+            <div className="legend-item">
+              <div className="legend-icon neutral-cell"></div>
+              <span>Balanced cell (similar in/out)</span>
             </div>
           </div>
           <div className="legend-colors">
-            <div className="color-scale">
-              <span>Origin</span>
+            <div className="color-scale-row">
+              <span className="scale-label">Flow:</span>
               <div className="gradient-bar flow-direction"></div>
-              <span>Dest</span>
+              <span className="scale-endpoints">
+                <span>Start</span>
+                <span>End</span>
+              </span>
             </div>
-            <div className="color-scale">
-              <span>Low</span>
-              <div className="gradient-bar"></div>
-              <span>High</span>
+            <div className="color-scale-row">
+              <span className="scale-label">Activity:</span>
+              <div className="gradient-bar activity"></div>
+              <span className="scale-endpoints">
+                <span>Low</span>
+                <span>High</span>
+              </span>
             </div>
+          </div>
+          <div className="legend-tips">
+            <p><strong>Tip:</strong> Click on a cell to highlight connected flows</p>
           </div>
         </div>
       </div>

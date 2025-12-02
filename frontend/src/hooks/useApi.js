@@ -162,6 +162,8 @@ export const fetchBuildingsMapData = async (params = {}) => {
  * @param {string} params.dayType - Day type filter: 'all', 'weekday', 'weekend' (default: 'all')
  * @param {string} params.purpose - Travel purpose filter (default: 'all')
  * @param {number} params.minTrips - Minimum trips to show a flow (default: 5)
+ * @param {string} params.startDate - Start date (YYYY-MM-DD, optional)
+ * @param {string} params.endDate - End date (YYYY-MM-DD, optional)
  * @returns {Promise<Object>} Flow map data with flows, cells, and buildings
  */
 export const fetchFlowMapData = async (params = {}) => {
@@ -169,15 +171,21 @@ export const fetchFlowMapData = async (params = {}) => {
     gridSize = 300, 
     dayType = 'all', 
     purpose = 'all',
-    minTrips = 5 
+    minTrips = 5,
+    startDate,
+    endDate
   } = params;
+  const apiParams = { 
+    grid_size: gridSize, 
+    day_type: dayType,
+    purpose,
+    min_trips: minTrips
+  };
+  if (startDate) apiParams.start_date = startDate;
+  if (endDate) apiParams.end_date = endDate;
+  
   const response = await apiClient.get('/api/flow-map', {
-    params: { 
-      grid_size: gridSize, 
-      day_type: dayType,
-      purpose,
-      min_trips: minTrips
-    }
+    params: apiParams
   });
   return response.data;
 };
@@ -213,14 +221,19 @@ export function useApi(fetchFunction, params = {}, autoFetch = true) {
   const [loading, setLoading] = useState(autoFetch);
   const [error, setError] = useState(null);
 
-  const fetch = useCallback(async (overrideParams = {}) => {
+  const fetch = useCallback(async (overrideParams = null) => {
+    // If overrideParams provided, use them directly; otherwise use initial params
+    const fetchParams = overrideParams !== null ? overrideParams : params;
+    console.log('useApi: Fetching with params:', fetchParams);
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchFunction({ ...params, ...overrideParams });
+      const result = await fetchFunction(fetchParams);
+      console.log('useApi: Fetch successful, flows count:', result?.flows?.length);
       setData(result);
       return result;
     } catch (err) {
+      console.error('useApi: Fetch error:', err);
       setError(err.message || 'An error occurred');
       return null;
     } finally {
