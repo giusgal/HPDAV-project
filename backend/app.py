@@ -1990,6 +1990,107 @@ def theme_river():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/parallel-coordinates', methods=['GET'])
+def get_parallel_coordinates():
+    """
+    Get activity counts by participant for parallel coordinates visualization.
+    Returns counts for different activity types (venue types) for each participant.
+    """
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        t0 = time.time()
+        logger.info("Querying parallel coordinates data...")
+        
+        # Query to get activity counts by participant and venue type
+        # Categories:
+        # - joviality: Pub visits
+        # - activities: Recreation purpose travels
+        # - travel: total travels
+        # - social: Pub + Restaurant visits
+        # - eat: Restaurant visits
+        # - home: Apartment visits
+        # - work: Workplace visits
+        # - leave: distinct days with activities
+        # - start: total check-ins
+        cur.execute("""
+            WITH participant_counts AS (
+                SELECT 
+                    participantid,
+                    COUNT(*) FILTER (WHERE venuetype = 'Pub') as joviality,
+                    COUNT(*) FILTER (WHERE venuetype = 'Restaurant') as eat,
+                    COUNT(*) FILTER (WHERE venuetype = 'Apartment') as home,
+                    COUNT(*) FILTER (WHERE venuetype = 'Workplace') as work
+                FROM checkinjournal
+                WHERE venuetype IS NOT NULL
+                GROUP BY participantid
+            ),
+            travel_counts AS (
+                SELECT 
+                    participantid,
+                    COUNT(*) as travel,
+                    COUNT(*) FILTER (WHERE purpose = 'Recreation (Social Gathering)') as activities
+                FROM traveljournal
+                GROUP BY participantid
+            ),
+            social_counts AS (
+                SELECT 
+                    participantid,
+                    COUNT(*) as social
+                FROM checkinjournal
+                WHERE venuetype IN ('Pub', 'Restaurant')
+                GROUP BY participantid
+            ),
+            first_last_activity AS (
+                SELECT 
+                    participantid,
+                    COUNT(DISTINCT DATE(timestamp)) as leave,
+                    COUNT(*) as start
+                FROM checkinjournal
+                GROUP BY participantid
+            )
+            SELECT 
+                p.participantid,
+                COALESCE(pc.joviality, 0) as joviality,
+                COALESCE(tc.activities, 0) as activities,
+                COALESCE(tc.travel, 0) as travel,
+                COALESCE(sc.social, 0) as social,
+                COALESCE(pc.eat, 0) as eat,
+                COALESCE(pc.home, 0) as home,
+                COALESCE(pc.work, 0) as work,
+                COALESCE(fla.leave, 0) as leave,
+                COALESCE(fla.start, 0) as start
+            FROM participants p
+            LEFT JOIN participant_counts pc ON p.participantid = pc.participantid
+            LEFT JOIN travel_counts tc ON p.participantid = tc.participantid
+            LEFT JOIN social_counts sc ON p.participantid = sc.participantid
+            LEFT JOIN first_last_activity fla ON p.participantid = fla.participantid
+            ORDER BY p.participantid
+        """)
+        
+        rows = cur.fetchall()
+        logger.info(f"Parallel coordinates query time = {time.time() - t0:.3f}s, rows = {len(rows)}")
+        
+        participants = [dict(row) for row in rows]
+        
+        cur.close()
+        return_db_connection(conn)
+        
+        return jsonify({
+            'participants': participants
+        })
+    
+    except Exception as e:
+        logger.error("Error in /api/parallel-coordinates", exc_info=e)
+        try:
+            cur.close()
+            return_db_connection(conn)
+        except:
+            pass
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == '__main__':
     logger.info("Starting Flask server on 0.0.0.0:5000 ...")
     app.run(host='0.0.0.0', port=5000)

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
-import { BuildingsMap, AreaCharacteristics, TrafficPatterns, DailyRoutines, TemporalPatterns, FlowMap, ThemeRiver } from './components';
+import { BuildingsMap, AreaCharacteristics, TrafficPatterns, DailyRoutines, TemporalPatterns, FlowMap, ThemeRiver, ParallelCoordinates } from './components';
 import './App.css';
 
 const VIEWS = {
@@ -11,6 +11,7 @@ const VIEWS = {
   'daily-routines': { id: 'daily-routines', label: 'Daily Routines', component: DailyRoutines },
   'temporal-patterns': { id: 'temporal-patterns', label: 'Temporal Patterns', component: TemporalPatterns },
   'theme-river': { id: 'theme-river', label: 'Theme River', component: ThemeRiver },
+  'parallel-coordinates': { id: 'parallel-coordinates', label: 'Parallel Coordinates', component: ParallelCoordinates },
 };
 
 function App() {

@@ -115,6 +115,17 @@ export const fetchTemporalPatterns = async (params = {}) => {
 };
 
 /**
+ * Fetch parallel coordinates data for participant activity analysis.
+ * @returns {Promise<Object>} Parallel coordinates data
+ */
+export const fetchParallelCoordinates = async (params = {}) => {
+  const response = await apiClient.get('/api/parallel-coordinates', {
+    params
+  });
+  return response.data;
+};
+
+/**
  * Fetch map bounds (coordinate extent).
  * @returns {Promise<Object>} Bounds data { min_x, max_x, min_y, max_y }
  */
