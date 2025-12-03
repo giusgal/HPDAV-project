@@ -111,7 +111,7 @@ class ParallelCoordinatesChart {
           .style('stroke-width', 2.5)
           .style('opacity', 1);
 
-        // Add title
+        // Add title only if there's a selection
         this.svg.append('text')
           .attr('x', width / 2)
           .attr('y', -30)
@@ -120,6 +120,15 @@ class ParallelCoordinatesChart {
           .style('font-weight', 'bold')
           .text(`Participant ${selectedParticipantId}`);
       }
+    } else {
+      // No selection - add generic title
+      this.svg.append('text')
+        .attr('x', width / 2)
+        .attr('y', -30)
+        .attr('text-anchor', 'middle')
+        .style('font-size', '18px')
+        .style('font-weight', 'bold')
+        .text('All Participants');
     }
 
     // Draw axes

@@ -2091,11 +2091,17 @@ def get_parallel_coordinates():
         logger.info(f"Querying parallel coordinates data... (exclude_outliers={exclude_outliers})")
         
         # Query to get activity counts by participant for 5 main categories:
-        # - work: Workplace visits + Work/Home Commute travels
-        # - home: Apartment visits
-        # - social: Pub visits + Recreation travels
-        # - food: Restaurant visits + Eating travels
-        # - travel: Total travels
+        # Categories explanation:
+        # - work: Work-related activities (Workplace venue visits + Work/Home Commute travels)
+        #         Represents professional activities and daily commuting patterns
+        # - home: Time spent at home (Apartment venue visits)
+        #         Indicates residential/domestic activities
+        # - social: Social/recreational activities (Pub visits + Recreation travels)
+        #           Represents leisure time and social gatherings
+        # - food: Food-related activities (Restaurant visits + Eating-purpose travels)
+        #         Indicates dining out and food consumption patterns
+        # - travel: Total mobility (all travel journal entries)
+        #           Represents overall movement and transportation activity
         cur.execute(f"""
             WITH venue_counts AS (
                 SELECT 

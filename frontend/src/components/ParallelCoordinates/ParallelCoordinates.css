@@ -47,33 +47,61 @@
   box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.1);
 }
 
-.control-group.checkbox-group {
-  flex-direction: row;
-  align-items: center;
+.participant-selector {
+  display: flex;
   gap: 8px;
+  align-items: center;
 }
 
-.checkbox-label {
+.participant-selector input[type="number"] {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  width: 120px;
+  text-align: center;
+  -moz-appearance: textfield; /* Firefox */
+}
+
+/* Remove spinner arrows in Chrome, Safari, Edge, Opera */
+.participant-selector input[type="number"]::-webkit-outer-spin-button,
+.participant-selector input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.participant-selector input[type="number"]:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.1);
+}
+
+.nav-button {
+  padding: 8px 16px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s;
   display: flex;
   align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  color: #333;
+  justify-content: center;
+  min-width: 40px;
 }
 
-.checkbox-label input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-  accent-color: #3498db;
+.nav-button:hover:not(:disabled) {
+  background: #f0f0f0;
+  border-color: #3498db;
 }
 
-.checkbox-hint {
-  font-size: 14px;
-  color: #888;
-  cursor: help;
+.nav-button:active:not(:disabled) {
+  background: #e0e0e0;
+}
+
+.nav-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .chart-wrapper {
