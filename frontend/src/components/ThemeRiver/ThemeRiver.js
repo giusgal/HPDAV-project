@@ -12,6 +12,7 @@ const ThemeRiver = () => {
   const [granularity, setGranularity] = useState('weekly');
   const [dimension, setDimension] = useState('mode');
   const [normalize, setNormalize] = useState(false);
+  const [excludeOutliers, setExcludeOutliers] = useState(false);
   
   // Ref for D3 chart container
   const chartRef = useRef(null);
@@ -21,14 +22,14 @@ const ThemeRiver = () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchThemeRiver({ granularity, dimension, normalize });
+      const result = await fetchThemeRiver({ granularity, dimension, normalize, excludeOutliers });
       setData(result);
     } catch (err) {
       setError(err.message || 'Failed to load data');
     } finally {
       setLoading(false);
     }
-  }, [granularity, dimension, normalize]);
+  }, [granularity, dimension, normalize, excludeOutliers]);
 
   useEffect(() => {
     loadData();
@@ -176,6 +177,18 @@ const ThemeRiver = () => {
             <option value="false">Absolute Values</option>
             <option value="true">Normalized (%)</option>
           </select>
+        </div>
+
+        <div className="control-group checkbox-group">
+          <label className="checkbox-label">
+            <input 
+              type="checkbox" 
+              checked={excludeOutliers} 
+              onChange={e => setExcludeOutliers(e.target.checked)} 
+            />
+            Exclude Outliers
+          </label>
+          <span className="checkbox-hint" title="Exclude participants who only logged data during the first month (&lt;2000 records)">ⓘ</span>
         </div>
 
         {data && data.date_range && (

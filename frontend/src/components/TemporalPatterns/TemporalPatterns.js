@@ -13,6 +13,7 @@ const TemporalPatterns = () => {
   const [metric, setMetric] = useState('all');
   const [venueType, setVenueType] = useState('all');
   const [activeChart, setActiveChart] = useState('activity');
+  const [excludeOutliers, setExcludeOutliers] = useState(false);
   
   // Refs for D3 chart containers
   const activityChartRef = useRef(null);
@@ -28,14 +29,14 @@ const TemporalPatterns = () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchTemporalPatterns({ granularity, metric, venueType });
+      const result = await fetchTemporalPatterns({ granularity, metric, venueType, excludeOutliers });
       setData(result);
     } catch (err) {
       setError(err.message || 'Failed to load data');
     } finally {
       setLoading(false);
     }
-  }, [granularity, metric, venueType]);
+  }, [granularity, metric, venueType, excludeOutliers]);
 
   useEffect(() => {
     loadData();
@@ -165,16 +166,13 @@ const TemporalPatterns = () => {
     );
   };
 
-  if (loading) {
-    return <div className="temporal-patterns"><div className="loading">Loading temporal patterns...</div></div>;
-  }
-
   if (error) {
     return <div className="temporal-patterns"><div className="error">Error: {error}</div></div>;
   }
 
   return (
     <div className="temporal-patterns">
+      {loading && <div className="loading-overlay">Loading temporal patterns...</div>}
       <div className="controls">
         <div className="control-group">
           <label>Time Granularity:</label>
@@ -204,6 +202,18 @@ const TemporalPatterns = () => {
             <option value="Apartment">Homes</option>
             <option value="Workplace">Workplaces</option>
           </select>
+        </div>
+
+        <div className="control-group checkbox-group">
+          <label className="checkbox-label">
+            <input 
+              type="checkbox" 
+              checked={excludeOutliers} 
+              onChange={e => setExcludeOutliers(e.target.checked)} 
+            />
+            Exclude Outliers
+          </label>
+          <span className="checkbox-hint" title="Exclude participants who only logged data during the first month (&lt;2000 records)">ⓘ</span>
         </div>
       </div>
 

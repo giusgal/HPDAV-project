@@ -6,6 +6,7 @@
   background: white;
   padding: 20px;
   overflow-y: auto;
+  position: relative;
 }
 
 .controls {
@@ -46,6 +47,35 @@
   box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.1);
 }
 
+.control-group.checkbox-group {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #3498db;
+}
+
+.checkbox-hint {
+  font-size: 14px;
+  color: #888;
+  cursor: help;
+}
+
 .chart-wrapper {
   flex: 1;
   display: flex;
@@ -67,6 +97,21 @@
   height: 400px;
   font-size: 16px;
   color: #666;
+}
+
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 16px;
+  color: #666;
+  z-index: 100;
 }
 
 .error {

@@ -47,6 +47,39 @@ _venue_locations_cache = None
 _hourly_pattern_cache = None
 # Cache for pre-aggregated traffic data (computed in SQL, not Python)
 _traffic_sql_cache = {}
+# Cache for outlier participant IDs
+_outlier_participants_cache = None
+
+
+def get_outlier_participants(cur):
+    """
+    Get the list of outlier participant IDs.
+    Outliers are participants who only logged during the first month (< 2000 records).
+    Results are cached in memory for subsequent requests.
+    """
+    global _outlier_participants_cache
+    
+    if _outlier_participants_cache is not None:
+        logger.info(f"Using cached outlier participants, count = {len(_outlier_participants_cache)}")
+        return _outlier_participants_cache
+    
+    t0 = time.time()
+    logger.info("Loading outlier participants from DB...")
+    
+    cur.execute("""
+        SELECT participantid
+        FROM participantstatuslogs
+        WHERE participantid IS NOT NULL
+        GROUP BY participantid
+        HAVING count(*) < 2000
+    """)
+    # Filter out any None values that might still exist
+    _outlier_participants_cache = set(
+        row['participantid'] for row in cur.fetchall() 
+        if row['participantid'] is not None
+    )
+    logger.info(f"Outlier participants loaded in {time.time() - t0:.3f}s, count = {len(_outlier_participants_cache)}")
+    return _outlier_participants_cache
 
 def get_db_connection():
     """Get a connection from the pool."""
@@ -271,17 +304,26 @@ def area_characteristics():
     Parameters:
     - grid_size: Size of the grid cells (default: 500)
     - metric: What to aggregate - 'demographics', 'financial', 'venues', 'apartments', 'all' (default: 'all')
+    - exclude_outliers: 'true' or 'false' - exclude participants with < 2000 records (default: 'false')
     
     All metrics are aggregated over the entire 15-month period.
     """
     grid_size = request.args.get('grid_size', 500, type=int)
     metric = request.args.get('metric', 'all', type=str)
+    exclude_outliers = request.args.get('exclude_outliers', 'false', type=str).lower() == 'true'
     
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     
     try:
-        results = {}
+        # Get outlier participants if needed
+        outlier_pids = set()
+        if exclude_outliers:
+            outlier_pids = get_outlier_participants(cur)
+        
+        results = {
+            'exclude_outliers': exclude_outliers
+        }
         
         # Get city bounds from apartments (fast query)
         t0 = time.time()
@@ -305,6 +347,10 @@ def area_characteristics():
         # Get cached participant locations for demographics and financial queries
         if metric in ['demographics', 'financial', 'all']:
             participant_data = get_participant_locations(cur)
+            # Filter out outliers if requested
+            if exclude_outliers and outlier_pids:
+                participant_data = [p for p in participant_data if p['participantid'] not in outlier_pids]
+                logger.info(f"Filtered participant data to {len(participant_data)} after excluding outliers")
         
         if metric in ['demographics', 'all']:
             # Aggregate in Python - much faster than SQL on 113M rows
@@ -914,14 +960,16 @@ def temporal_patterns():
     - granularity: 'daily', 'weekly', 'monthly' (default: 'weekly')
     - metric: 'activity', 'spending', 'social', 'all' (default: 'all')
     - venue_type: 'all', 'Restaurant', 'Pub', 'Apartment', 'Workplace' (default: 'all')
+    - exclude_outliers: 'true' or 'false' - exclude participants with < 2000 records (default: 'false')
     """
     global _temporal_patterns_cache
     
     granularity = request.args.get('granularity', 'weekly', type=str)
     metric = request.args.get('metric', 'all', type=str)
     venue_type = request.args.get('venue_type', 'all', type=str)
+    exclude_outliers = request.args.get('exclude_outliers', 'false', type=str).lower() == 'true'
     
-    cache_key = (granularity, metric, venue_type)
+    cache_key = (granularity, metric, venue_type, exclude_outliers)
     if cache_key in _temporal_patterns_cache:
         logger.info(f"Using cached temporal patterns for key={cache_key}")
         return jsonify(_temporal_patterns_cache[cache_key])
@@ -930,10 +978,23 @@ def temporal_patterns():
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     
     try:
+        # Get outlier participants if needed
+        outlier_filter = ""
+        outlier_filter_fin = ""
+        outlier_filter_social = ""
+        if exclude_outliers:
+            outlier_pids = get_outlier_participants(cur)
+            if outlier_pids:
+                outlier_list = ','.join(str(pid) for pid in outlier_pids)
+                outlier_filter = f"AND participantid NOT IN ({outlier_list})"
+                outlier_filter_fin = f"WHERE participantid NOT IN ({outlier_list})"
+                outlier_filter_social = f"AND participantidfrom NOT IN ({outlier_list}) AND participantidto NOT IN ({outlier_list})"
+        
         results = {
             'granularity': granularity,
             'metric': metric,
-            'venue_type': venue_type
+            'venue_type': venue_type,
+            'exclude_outliers': exclude_outliers
         }
         
         # Determine date truncation based on granularity
@@ -964,7 +1025,7 @@ def temporal_patterns():
         # Activity patterns over time
         if metric in ['activity', 'all']:
             t0 = time.time()
-            venue_filter = ""
+            venue_filter = "WHERE 1=1"
             if venue_type != 'all':
                 venue_filter = f"WHERE venuetype = '{venue_type}'"
             
@@ -983,7 +1044,7 @@ def temporal_patterns():
                     COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM timestamp) BETWEEN 19 AND 23) as evening_activity,
                     COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM timestamp) BETWEEN 0 AND 5) as night_activity
                 FROM checkinjournal
-                {venue_filter}
+                {venue_filter} {outlier_filter}
                 GROUP BY {date_trunc}
                 ORDER BY period
             """)
@@ -1023,6 +1084,7 @@ def temporal_patterns():
                     SUM(CASE WHEN category = 'Education' THEN ABS(amount) ELSE 0 END) as education_spending,
                     AVG(CASE WHEN amount < 0 THEN ABS(amount) END) as avg_transaction
                 FROM financialjournal
+                {outlier_filter_fin}
                 GROUP BY {date_trunc_fin}
                 ORDER BY period
             """)
@@ -1055,6 +1117,7 @@ def temporal_patterns():
                     COUNT(DISTINCT participantidto) as contacted_people,
                     COUNT(DISTINCT participantidfrom) + COUNT(DISTINCT participantidto) as total_social_participants
                 FROM socialnetwork
+                WHERE 1=1 {outlier_filter_social}
                 GROUP BY {date_trunc}
                 ORDER BY period
             """)
@@ -1747,14 +1810,16 @@ def theme_river():
     - granularity: 'daily', 'weekly', 'monthly' (default: 'weekly')
     - dimension: 'mode', 'purpose', 'spending' - which dimension to visualize (default: 'mode')
     - normalize: 'true' or 'false' - whether to normalize to percentages (default: 'false')
+    - exclude_outliers: 'true' or 'false' - exclude participants with < 2000 records (default: 'false')
     """
     global _theme_river_cache
     
     granularity = request.args.get('granularity', 'weekly', type=str)
     dimension = request.args.get('dimension', 'mode', type=str)
     normalize = request.args.get('normalize', 'false', type=str).lower() == 'true'
+    exclude_outliers = request.args.get('exclude_outliers', 'false', type=str).lower() == 'true'
     
-    cache_key = (granularity, dimension, normalize)
+    cache_key = (granularity, dimension, normalize, exclude_outliers)
     if cache_key in _theme_river_cache:
         logger.info(f"Using cached theme river data for key={cache_key}")
         return jsonify(_theme_river_cache[cache_key])
@@ -1763,10 +1828,19 @@ def theme_river():
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     
     try:
+        # Get outlier participants if needed
+        outlier_filter = ""
+        if exclude_outliers:
+            outlier_pids = get_outlier_participants(cur)
+            if outlier_pids:
+                outlier_list = ','.join(str(pid) for pid in outlier_pids)
+                outlier_filter = f"AND participantid NOT IN ({outlier_list})"
+        
         results = {
             'granularity': granularity,
             'dimension': dimension,
-            'normalize': normalize
+            'normalize': normalize,
+            'exclude_outliers': exclude_outliers
         }
         
         # Determine date truncation based on granularity
@@ -1787,7 +1861,7 @@ def theme_river():
                     currentmode::text as category,
                     COUNT(*) as value
                 FROM participantstatuslogs
-                WHERE currentmode IS NOT NULL
+                WHERE currentmode IS NOT NULL {outlier_filter}
                 GROUP BY {date_trunc}, currentmode
                 ORDER BY period, category
             """)
@@ -1803,7 +1877,7 @@ def theme_river():
                     purpose::text as category,
                     COUNT(*) as value
                 FROM traveljournal
-                WHERE purpose IS NOT NULL
+                WHERE purpose IS NOT NULL {outlier_filter}
                 GROUP BY DATE_TRUNC('day', travelstarttime), purpose
             """)
             daily_data = cur.fetchall()
@@ -1842,7 +1916,7 @@ def theme_river():
                     category::text as category,
                     SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) as value
                 FROM financialjournal
-                WHERE category IS NOT NULL AND category != 'Wage'
+                WHERE category IS NOT NULL AND category != 'Wage' {outlier_filter}
                 GROUP BY {date_trunc}, category
                 HAVING SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) > 0
                 ORDER BY period, category
@@ -1995,13 +2069,26 @@ def get_parallel_coordinates():
     """
     Get activity counts by participant for parallel coordinates visualization.
     Returns counts for different activity types (venue types) for each participant.
+    
+    Parameters:
+    - exclude_outliers: 'true' or 'false' - exclude participants with < 2000 records (default: 'false')
     """
+    exclude_outliers = request.args.get('exclude_outliers', 'false', type=str).lower() == 'true'
+    
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
+        # Get outlier participants if needed
+        outlier_filter = ""
+        if exclude_outliers:
+            outlier_pids = get_outlier_participants(cur)
+            if outlier_pids:
+                outlier_list = ','.join(str(pid) for pid in outlier_pids)
+                outlier_filter = f"WHERE p.participantid NOT IN ({outlier_list})"
+        
         t0 = time.time()
-        logger.info("Querying parallel coordinates data...")
+        logger.info(f"Querying parallel coordinates data... (exclude_outliers={exclude_outliers})")
         
         # Query to get activity counts by participant for 5 main categories:
         # - work: Workplace visits + Work/Home Commute travels
@@ -2009,7 +2096,7 @@ def get_parallel_coordinates():
         # - social: Pub visits + Recreation travels
         # - food: Restaurant visits + Eating travels
         # - travel: Total travels
-        cur.execute("""
+        cur.execute(f"""
             WITH venue_counts AS (
                 SELECT 
                     participantid,
@@ -2041,6 +2128,7 @@ def get_parallel_coordinates():
             FROM participants p
             LEFT JOIN venue_counts vc ON p.participantid = vc.participantid
             LEFT JOIN travel_counts tc ON p.participantid = tc.participantid
+            {outlier_filter}
             ORDER BY p.participantid
         """)
         
@@ -2053,7 +2141,8 @@ def get_parallel_coordinates():
         return_db_connection(conn)
         
         return jsonify({
-            'participants': participants
+            'participants': participants,
+            'exclude_outliers': exclude_outliers
         })
     
     except Exception as e:

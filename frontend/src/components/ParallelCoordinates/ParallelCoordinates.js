@@ -1,13 +1,33 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useApi, fetchParallelCoordinates } from '../../hooks/useApi';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { fetchParallelCoordinates } from '../../hooks/useApi';
 import ParallelCoordinatesChart from './ParallelCoordinatesChart';
 import './ParallelCoordinates.css';
 
 function ParallelCoordinates() {
   const chartRef = useRef(null);
   const chartInstanceRef = useRef(null);
-  const { data, loading, error } = useApi(fetchParallelCoordinates);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [selectedParticipant, setSelectedParticipant] = useState(null);
+  const [excludeOutliers, setExcludeOutliers] = useState(false);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await fetchParallelCoordinates({ excludeOutliers });
+      setData(result);
+    } catch (err) {
+      setError(err.message || 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  }, [excludeOutliers]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   console.log('ParallelCoordinates render - data:', data, 'loading:', loading, 'error:', error);
 
@@ -63,14 +83,6 @@ function ParallelCoordinates() {
     setSelectedParticipant(participantId);
   };
 
-  if (loading) {
-    return (
-      <div className="parallel-coordinates-container">
-        <div className="loading">Loading parallel coordinates data...</div>
-      </div>
-    );
-  }
-
   if (error) {
     return (
       <div className="parallel-coordinates-container">
@@ -81,6 +93,7 @@ function ParallelCoordinates() {
 
   return (
     <div className="parallel-coordinates-container">
+      {loading && <div className="loading-overlay">Loading parallel coordinates data...</div>}
       <div className="controls">
         <div className="control-group">
           <label htmlFor="participant-select">Person Id</label>
@@ -95,6 +108,17 @@ function ParallelCoordinates() {
               </option>
             ))}
           </select>
+        </div>
+        <div className="control-group checkbox-group">
+          <label className="checkbox-label">
+            <input 
+              type="checkbox" 
+              checked={excludeOutliers} 
+              onChange={(e) => setExcludeOutliers(e.target.checked)} 
+            />
+            Exclude Outliers
+          </label>
+          <span className="checkbox-hint" title="Exclude participants who only logged data during the first month (<2000 records)">ⓘ</span>
         </div>
       </div>
       

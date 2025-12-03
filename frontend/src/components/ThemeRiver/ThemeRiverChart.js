@@ -62,8 +62,8 @@ class ThemeRiverChart {
     d3.select(container).selectAll('svg').remove();
     d3.select(container).selectAll('.theme-river-legend').remove();
 
-    const pieRadius = 75;
-    const pieAreaWidth = pieRadius * 2 + 40;
+    const pieRadius = 110;
+    const pieAreaWidth = pieRadius * 2 + 100;
     const width = container.clientWidth - this.margin.left - this.margin.right - pieAreaWidth;
     const height = container.clientHeight - this.margin.top - this.margin.bottom - 60;
 
@@ -166,10 +166,10 @@ class ThemeRiverChart {
       .style('fill', '#2c3e50')
       .style('opacity', 0);
 
-    // Pie chart group
+    // Pie chart group - positioned at far right edge with more margin
     const pieGroup = svg.append('g')
       .attr('class', 'pie-chart-group')
-      .attr('transform', `translate(${width + pieRadius + 30}, ${height / 2})`);
+      .attr('transform', `translate(${width + pieRadius + 80}, ${height / 2})`);
 
     const pieTitle = pieGroup.append('text')
       .attr('class', 'pie-title')
@@ -190,8 +190,8 @@ class ThemeRiverChart {
       .outerRadius(pieRadius);
 
     const arcLabel = d3.arc()
-      .innerRadius(pieRadius * 0.5)
-      .outerRadius(pieRadius * 0.5);
+      .innerRadius(pieRadius * 0.6)
+      .outerRadius(pieRadius * 0.6);
 
     // Draw streams
     const streams = svg.append('g')
@@ -248,38 +248,42 @@ class ThemeRiverChart {
         .attr('transform', d => `translate(${arcLabel.centroid(d)})`)
         .attr('text-anchor', 'middle')
         .attr('dy', '0.35em')
-        .style('font-size', '10px')
-        .style('font-weight', '600')
-        .style('fill', '#fff')
+        .style('font-size', '12px')
+        .style('font-weight', 'normal')
+        .style('fill', 'black')
+        .style('stroke', 'white')
+        .style('stroke-width', '2px')
+        .style('paint-order', 'stroke')
         .style('pointer-events', 'none')
         .text(d => {
           const pct = (d.data.value / total * 100);
-          return pct >= 8 ? `${pct.toFixed(0)}%` : '';
+          return pct >= 6 ? `${pct.toFixed(0)}%` : '';
         });
 
       // Legend below pie
       const legendGroup = pieGroup.append('g')
         .attr('class', 'pie-legend-group')
-        .attr('transform', `translate(${-pieRadius}, ${pieRadius + 15})`);
+        .attr('transform', `translate(${-pieRadius}, ${pieRadius + 20})`);
 
       pieData.forEach((d, i) => {
         const item = legendGroup.append('g')
-          .attr('transform', `translate(0, ${i * 14})`);
+          .attr('transform', `translate(0, ${i * 18})`);
 
         item.append('rect')
-          .attr('width', 10)
-          .attr('height', 10)
+          .attr('width', 12)
+          .attr('height', 12)
           .attr('rx', 2)
           .attr('fill', d.color);
 
         const pct = (d.value / total * 100).toFixed(1);
-        const shortName = d.category.length > 12 ? d.category.substring(0, 10) + '..' : d.category;
+        const shortName = d.category.length > 15 ? d.category.substring(0, 13) + '..' : d.category;
         
         item.append('text')
-          .attr('x', 14)
-          .attr('y', 9)
-          .style('font-size', '10px')
-          .style('fill', '#555')
+          .attr('x', 16)
+          .attr('y', 10)
+          .style('font-size', '12px')
+          .style('font-weight', 'normal')
+          .style('fill', '#000')
           .text(`${shortName}: ${pct}%`);
       });
     }

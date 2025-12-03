@@ -25,14 +25,16 @@ const apiClient = axios.create({
  * @param {Object} params - Query parameters
  * @param {number} params.gridSize - Size of grid cells (default: 500)
  * @param {string} params.metric - Metric to fetch (default: 'all')
+ * @param {boolean} params.excludeOutliers - Exclude outlier participants (default: false)
  * @returns {Promise<Object>} Area characteristics data
  */
 export const fetchAreaCharacteristics = async (params = {}) => {
-  const { gridSize = 500, metric = 'all' } = params;
+  const { gridSize = 500, metric = 'all', excludeOutliers = false } = params;
   const response = await apiClient.get('/api/area-characteristics', {
     params: { 
       grid_size: gridSize, 
-      metric
+      metric,
+      exclude_outliers: excludeOutliers.toString()
     }
   });
   return response.data;
@@ -96,19 +98,22 @@ export const fetchParticipantRoutines = async (params = {}) => {
  * @param {string} params.granularity - Time granularity (default: 'weekly')
  * @param {string} params.metric - Metric to fetch (default: 'all')
  * @param {string} params.venueType - Venue type filter (default: 'all')
+ * @param {boolean} params.excludeOutliers - Exclude outlier participants (default: false)
  * @returns {Promise<Object>} Temporal patterns data
  */
 export const fetchTemporalPatterns = async (params = {}) => {
   const { 
     granularity = 'weekly', 
     metric = 'all',
-    venueType = 'all'
+    venueType = 'all',
+    excludeOutliers = false
   } = params;
   const response = await apiClient.get('/api/temporal-patterns', {
     params: { 
       granularity,
       metric,
-      venue_type: venueType
+      venue_type: venueType,
+      exclude_outliers: excludeOutliers.toString()
     }
   });
   return response.data;
@@ -116,11 +121,16 @@ export const fetchTemporalPatterns = async (params = {}) => {
 
 /**
  * Fetch parallel coordinates data for participant activity analysis.
+ * @param {Object} params - Query parameters
+ * @param {boolean} params.excludeOutliers - Exclude outlier participants (default: false)
  * @returns {Promise<Object>} Parallel coordinates data
  */
 export const fetchParallelCoordinates = async (params = {}) => {
+  const { excludeOutliers = false } = params;
   const response = await apiClient.get('/api/parallel-coordinates', {
-    params
+    params: {
+      exclude_outliers: excludeOutliers.toString()
+    }
   });
   return response.data;
 };
@@ -207,19 +217,22 @@ export const fetchFlowMapData = async (params = {}) => {
  * @param {string} params.granularity - Time granularity: 'daily', 'weekly', 'monthly' (default: 'weekly')
  * @param {string} params.dimension - Dimension to visualize: 'mode', 'purpose', 'spending' (default: 'mode')
  * @param {boolean} params.normalize - Whether to normalize to percentages (default: false)
+ * @param {boolean} params.excludeOutliers - Exclude outlier participants (default: false)
  * @returns {Promise<Object>} Theme river data with periods, categories, and values
  */
 export const fetchThemeRiver = async (params = {}) => {
   const { 
     granularity = 'weekly', 
     dimension = 'mode', 
-    normalize = false
+    normalize = false,
+    excludeOutliers = false
   } = params;
   const response = await apiClient.get('/api/theme-river', {
     params: { 
       granularity,
       dimension,
-      normalize: normalize.toString()
+      normalize: normalize.toString(),
+      exclude_outliers: excludeOutliers.toString()
     }
   });
   return response.data;

@@ -87,6 +87,7 @@ function AreaCharacteristics() {
   const [debouncedGridSize, setDebouncedGridSize] = useState(DEFAULT_GRID_SIZE);
   const [hoveredCell, setHoveredCell] = useState(null);
   const [opacity, setOpacity] = useState(0.7);
+  const [excludeOutliers, setExcludeOutliers] = useState(false);
   
   // Sync text input when slider changes
   useEffect(() => {
@@ -101,13 +102,13 @@ function AreaCharacteristics() {
     return () => clearTimeout(timer);
   }, [gridSize]);
   
-  const { data, loading, error, refetch } = useApi(fetchAreaCharacteristics, { gridSize: debouncedGridSize }, true);
+  const { data, loading, error, refetch } = useApi(fetchAreaCharacteristics, { gridSize: debouncedGridSize, excludeOutliers }, true);
   const { data: buildingsData } = useApi(fetchBuildingsMapData, {}, true);
 
   // Track if initial load is complete
   const initialLoadComplete = useRef(false);
   
-  // Refetch when grid size changes (but skip initial load)
+  // Refetch when grid size or excludeOutliers changes (but skip initial load)
   useEffect(() => {
     // Skip the first render - the useApi hook already fetched on mount
     if (!initialLoadComplete.current) {
@@ -115,8 +116,8 @@ function AreaCharacteristics() {
       return;
     }
     
-    refetch({ gridSize: debouncedGridSize });
-  }, [debouncedGridSize]);
+    refetch({ gridSize: debouncedGridSize, excludeOutliers });
+  }, [debouncedGridSize, excludeOutliers]);
 
   const currentMetricConfig = useMemo(() => 
     METRICS.find(m => m.id === selectedMetric), [selectedMetric]);
@@ -454,6 +455,17 @@ function AreaCharacteristics() {
             style={{ width: '120px' }}
           />
           <span style={{ fontSize: '12px', color: '#666', minWidth: '35px' }}>{(opacity * 100).toFixed(0)}%</span>
+        </div>
+        <div className="control-group checkbox-group">
+          <label className="checkbox-label">
+            <input 
+              type="checkbox" 
+              checked={excludeOutliers} 
+              onChange={(e) => setExcludeOutliers(e.target.checked)} 
+            />
+            Exclude Outliers
+          </label>
+          <span className="checkbox-hint" title="Exclude participants who only logged data during the first month (<2000 records)">ⓘ</span>
         </div>
         {loading && <span className="loading-indicator">Loading...</span>}
       </div>
