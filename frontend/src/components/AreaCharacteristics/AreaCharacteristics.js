@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { useApi, fetchAreaCharacteristics, fetchBuildingsMapData } from '../../hooks/useApi';
 
@@ -19,9 +19,16 @@ const METRICS = [
   { id: 'employer_count', label: 'Employer Count', category: 'venues', key: 'employer_count' },
 ];
 
-const DEFAULT_GRID_SIZE = 200;
+const DEFAULT_GRID_SIZE = 250;
 const MIN_GRID_SIZE = 50;
 const MAX_GRID_SIZE = 1000;
+
+// IDW interpolation parameters
+const DEFAULT_IDW_POWER = 4.5;
+const MIN_IDW_POWER = 0.5;
+const MAX_IDW_POWER = 5;
+const RENDER_SCALE = 0.25; // Render at 25% resolution then scale up (lower = faster)
+const K_NEAREST_NEIGHBORS = 8; // Number of nearest points to consider for interpolation
 
 /**
  * Parse PostgreSQL polygon string to array of points.
@@ -40,6 +47,146 @@ function parsePolygon(polygonStr) {
     console.warn('Failed to parse polygon:', polygonStr, e);
     return null;
   }
+}
+
+/**
+ * Build a spatial grid index for fast nearest neighbor queries.
+ * @param {Array} dataPoints - Array of {x, y, value} objects
+ * @param {Object} bounds - {min_x, max_x, min_y, max_y}
+ * @param {number} gridSize - Size of spatial grid cells
+ * @returns {Object} Spatial index with grid and metadata
+ */
+function buildSpatialIndex(dataPoints, bounds, gridSize) {
+  const grid = new Map();
+  const cellSize = gridSize * 2; // Use 2x the data grid size for spatial index
+  
+  dataPoints.forEach(point => {
+    const cellX = Math.floor(point.x / cellSize);
+    const cellY = Math.floor(point.y / cellSize);
+    const key = `${cellX},${cellY}`;
+    
+    if (!grid.has(key)) {
+      grid.set(key, []);
+    }
+    grid.get(key).push(point);
+  });
+  
+  return { grid, cellSize };
+}
+
+/**
+ * Get K nearest neighbors using spatial index.
+ * @param {number} x - Query X coordinate
+ * @param {number} y - Query Y coordinate
+ * @param {Object} spatialIndex - Spatial index from buildSpatialIndex
+ * @param {number} k - Number of neighbors to find
+ * @returns {Array} K nearest data points
+ */
+function getKNearestNeighbors(x, y, spatialIndex, k) {
+  const { grid, cellSize } = spatialIndex;
+  const cellX = Math.floor(x / cellSize);
+  const cellY = Math.floor(y / cellSize);
+  
+  const candidates = [];
+  
+  // Check current cell and neighboring cells (3x3 grid)
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const key = `${cellX + dx},${cellY + dy}`;
+      const points = grid.get(key);
+      if (points) {
+        candidates.push(...points);
+      }
+    }
+  }
+  
+  // If we don't have enough candidates, expand search
+  if (candidates.length < k) {
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) continue; // Skip already checked
+        const key = `${cellX + dx},${cellY + dy}`;
+        const points = grid.get(key);
+        if (points) {
+          candidates.push(...points);
+        }
+      }
+    }
+  }
+  
+  // Calculate distances and sort
+  const withDistances = candidates.map(point => {
+    const dx = x - point.x;
+    const dy = y - point.y;
+    return {
+      ...point,
+      distSq: dx * dx + dy * dy
+    };
+  });
+  
+  withDistances.sort((a, b) => a.distSq - b.distSq);
+  
+  return withDistances.slice(0, k);
+}
+
+/**
+ * Fast IDW interpolation using K nearest neighbors.
+ * @param {number} x - X coordinate to interpolate
+ * @param {number} y - Y coordinate to interpolate
+ * @param {Array} nearestPoints - K nearest points with distSq already calculated
+ * @param {number} power - The power parameter (higher = more local influence)
+ * @returns {number} Interpolated value
+ */
+function idwInterpolationFast(nearestPoints, power = 2) {
+  if (nearestPoints.length === 0) return 0;
+  
+  // If we're very close to a point, return its value
+  if (nearestPoints[0].distSq < 0.01) {
+    return nearestPoints[0].value;
+  }
+  
+  let weightedSum = 0;
+  let weightSum = 0;
+  
+  for (const point of nearestPoints) {
+    const dist = Math.sqrt(point.distSq);
+    const weight = 1 / Math.pow(dist, power);
+    weightedSum += weight * point.value;
+    weightSum += weight;
+  }
+  
+  return weightSum > 0 ? weightedSum / weightSum : 0;
+}
+
+/**
+ * Check if a point is inside any building polygon using ray casting algorithm.
+ */
+function isPointInPolygon(x, y, polygon) {
+  let inside = false;
+  const n = polygon.length;
+  
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y;
+    const xj = polygon[j].x, yj = polygon[j].y;
+    
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  
+  return inside;
+}
+
+/**
+ * Check if a point is inside any of the building polygons.
+ */
+function isPointInsideBuildings(x, y, buildingPolygons) {
+  for (const polygon of buildingPolygons) {
+    if (isPointInPolygon(x, y, polygon)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -80,14 +227,19 @@ function computeBoundsFromBuildings(buildings, paddingPercent = 0.02) {
 
 function AreaCharacteristics() {
   const svgRef = useRef(null);
+  const canvasRef = useRef(null);
   const tooltipRef = useRef(null);
   const [selectedMetric, setSelectedMetric] = useState('population');
   const [gridSize, setGridSize] = useState(DEFAULT_GRID_SIZE);
   const [gridSizeInput, setGridSizeInput] = useState(DEFAULT_GRID_SIZE.toString());
   const [debouncedGridSize, setDebouncedGridSize] = useState(DEFAULT_GRID_SIZE);
-  const [hoveredCell, setHoveredCell] = useState(null);
-  const [opacity, setOpacity] = useState(0.7);
-  const [excludeOutliers, setExcludeOutliers] = useState(false);
+  const [hoveredValue, setHoveredValue] = useState(null);
+  const [mousePos, setMousePos] = useState(null);
+  const [opacity, setOpacity] = useState(1.0);
+  const [debouncedOpacity, setDebouncedOpacity] = useState(0.7);
+  const [idwPower, setIdwPower] = useState(DEFAULT_IDW_POWER);
+  const [debouncedIdwPower, setDebouncedIdwPower] = useState(DEFAULT_IDW_POWER);
+  const [showBuildings, setShowBuildings] = useState(true);
   
   // Sync text input when slider changes
   useEffect(() => {
@@ -102,7 +254,23 @@ function AreaCharacteristics() {
     return () => clearTimeout(timer);
   }, [gridSize]);
   
-  const { data, loading, error, refetch } = useApi(fetchAreaCharacteristics, { gridSize: debouncedGridSize, excludeOutliers }, true);
+  // Debounce opacity changes - wait 200ms after user stops sliding
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedOpacity(opacity);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [opacity]);
+  
+  // Debounce IDW power changes - wait 300ms after user stops sliding
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedIdwPower(idwPower);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [idwPower]);
+  
+  const { data, loading, error, refetch } = useApi(fetchAreaCharacteristics, { gridSize: debouncedGridSize }, true);
   const { data: buildingsData } = useApi(fetchBuildingsMapData, {}, true);
 
   // Track if initial load is complete
@@ -136,16 +304,28 @@ function AreaCharacteristics() {
     });
 
     // Get all grid cells with values - filter out null and 0 values
+    // Convert grid coordinates to actual coordinates (center of each cell)
     const cells = categoryData.map(cell => ({
       ...cell,
-      value: cell[currentMetricConfig.key]
+      value: cell[currentMetricConfig.key],
+      // Convert grid indices to actual coordinates (center of cell)
+      x: (cell.grid_x + 0.5) * debouncedGridSize,
+      y: (cell.grid_y + 0.5) * debouncedGridSize
     })).filter(cell => cell.value != null && cell.value !== 0);
 
     return { cells, dataMap, bounds: data.bounds };
-  }, [data, currentMetricConfig]);
+  }, [data, currentMetricConfig, debouncedGridSize]);
+
+  // Pre-parse building polygons for hit testing
+  const buildingPolygons = useMemo(() => {
+    if (!buildingsData?.buildings) return [];
+    return buildingsData.buildings
+      .map(b => parsePolygon(b.location))
+      .filter(p => p && p.length >= 3);
+  }, [buildingsData]);
 
   useEffect(() => {
-    if (!processedData || !svgRef.current) return;
+    if (!processedData || !svgRef.current || !canvasRef.current) return;
 
     const { cells } = processedData;
     
@@ -167,8 +347,27 @@ function AreaCharacteristics() {
     // Set height based on width to maintain aspect ratio
     const margin = { top: 20, right: 120, bottom: 40, left: 60 };
     const innerWidth = width - margin.left - margin.right;
-    const innerHeight = innerWidth / dataAspectRatio; // Maintain aspect ratio
+    const innerHeight = innerWidth / dataAspectRatio;
     const height = innerHeight + margin.top + margin.bottom;
+
+    // Setup canvas for continuous heatmap - render at lower resolution for performance
+    const canvas = canvasRef.current;
+    const renderWidth = Math.floor(innerWidth * RENDER_SCALE);
+    const renderHeight = Math.floor(innerHeight * RENDER_SCALE);
+    
+    canvas.width = renderWidth;
+    canvas.height = renderHeight;
+    canvas.style.width = `${innerWidth}px`;
+    canvas.style.height = `${innerHeight}px`;
+    canvas.style.position = 'absolute';
+    canvas.style.left = `${margin.left}px`;
+    canvas.style.top = `${margin.top}px`;
+    canvas.style.imageRendering = 'auto'; // Smooth scaling
+    
+    const ctx = canvas.getContext('2d');
+    
+    // Build spatial index for fast nearest neighbor queries
+    const spatialIndex = buildSpatialIndex(cells, bounds, debouncedGridSize);
 
     // Clear previous content
     d3.select(svgRef.current).selectAll('*').remove();
@@ -180,19 +379,65 @@ function AreaCharacteristics() {
     const g = svg.append('g')
       .attr('transform', `translate(${margin.left},${margin.top})`);
 
-    // Scales - Y-axis inverted to match image coordinates (top-down)
-    const xExtent = [bounds.min_x, bounds.max_x];
-    const yExtent = [bounds.min_y, bounds.max_y];
-    
+    // Scales
     const xScale = d3.scaleLinear()
-      .domain(xExtent)
+      .domain([bounds.min_x, bounds.max_x])
       .range([0, innerWidth]);
 
     const yScale = d3.scaleLinear()
-      .domain(yExtent)
-      .range([innerHeight, 0]); // Inverted for image coordinates
+      .domain([bounds.min_y, bounds.max_y])
+      .range([innerHeight, 0]);
 
-    // Add clipping path to prevent cells from going outside the chart area
+    // Color scale
+    const values = cells.map(c => c.value);
+    const minValue = d3.min(values);
+    const maxValue = d3.max(values);
+    const colorScale = d3.scaleSequential(d3.interpolateYlOrRd)
+      .domain([minValue, maxValue]);
+
+    // Render continuous heatmap on canvas using fast IDW interpolation
+    const imageData = ctx.createImageData(renderWidth, renderHeight);
+    const pixelData = imageData.data;
+    
+    // Render at lower resolution for performance
+    for (let py = 0; py < renderHeight; py++) {
+      for (let px = 0; px < renderWidth; px++) {
+        // Convert pixel coordinates to data coordinates (accounting for render scale)
+        const screenX = px / RENDER_SCALE;
+        const screenY = py / RENDER_SCALE;
+        const dataX = xScale.invert(screenX);
+        const dataY = yScale.invert(screenY);
+        
+        // Check if point is inside any building (if filtering enabled)
+        const insideBuilding = showBuildings && buildingPolygons.length > 0 
+          ? isPointInsideBuildings(dataX, dataY, buildingPolygons)
+          : true;
+        
+        if (insideBuilding || !showBuildings) {
+          // Get K nearest neighbors
+          const nearestPoints = getKNearestNeighbors(dataX, dataY, spatialIndex, K_NEAREST_NEIGHBORS);
+          
+          if (nearestPoints.length > 0) {
+            // Interpolate value using nearest neighbors
+            const value = idwInterpolationFast(nearestPoints, debouncedIdwPower);
+            
+            // Get color for this value
+            const color = d3.color(colorScale(value));
+            
+            // Set pixel color
+            const idx = (py * renderWidth + px) * 4;
+            pixelData[idx] = color.r;
+            pixelData[idx + 1] = color.g;
+            pixelData[idx + 2] = color.b;
+            pixelData[idx + 3] = Math.round(debouncedOpacity * 255);
+          }
+        }
+      }
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+
+    // Add clipping path for SVG elements
     svg.append('defs')
       .append('clipPath')
       .attr('id', 'chart-clip')
@@ -202,8 +447,8 @@ function AreaCharacteristics() {
       .attr('width', innerWidth)
       .attr('height', innerHeight);
 
-    // Draw building polygons as background
-    if (buildingsData?.buildings) {
+    // Draw building outlines on SVG (on top of canvas)
+    if (buildingsData?.buildings && showBuildings) {
       const lineGenerator = d3.line()
         .x(d => xScale(d.x))
         .y(d => yScale(d.y))
@@ -222,68 +467,56 @@ function AreaCharacteristics() {
         .append('path')
         .attr('class', 'building')
         .attr('d', d => lineGenerator(d.points))
-        .attr('fill', d => {
-          switch (d.buildingtype) {
-            case 'Commercial': return 'rgba(52, 152, 219, 0.3)';
-            case 'Residential':
-            case 'Residental': return 'rgba(46, 204, 113, 0.3)';
-            case 'School': return 'rgba(155, 89, 182, 0.3)';
-            default: return 'rgba(100, 100, 100, 0.3)';
-          }
-        })
+        .attr('fill', 'none')
         .attr('stroke', '#333')
         .attr('stroke-width', 0.5)
-        .attr('opacity', 0.6);
+        .attr('opacity', 0.8);
     }
 
-    const values = cells.map(c => c.value);
-    const colorScale = d3.scaleSequential(d3.interpolateYlOrRd)
-      .domain([d3.min(values), d3.max(values)]);
-
-    // Calculate cell dimensions in pixels
-    const cellWidth = Math.abs(xScale(debouncedGridSize) - xScale(0));
-    const cellHeight = Math.abs(yScale(0) - yScale(debouncedGridSize));
-
-    // Create a group for cells with clipping
-    const cellsGroup = g.append('g')
-      .attr('clip-path', 'url(#chart-clip)');
-
-    // Draw cells with transparency
-    cellsGroup.selectAll('rect.cell')
-      .data(cells)
-      .enter()
-      .append('rect')
-      .attr('class', 'cell')
-      .attr('x', d => xScale(d.grid_x * debouncedGridSize))
-      .attr('y', d => yScale((d.grid_y + 1) * debouncedGridSize)) // +1 because Y is inverted
-      .attr('width', cellWidth)
-      .attr('height', cellHeight)
-      .attr('fill', d => colorScale(d.value))
-      .attr('opacity', opacity)
-      .attr('stroke', '#fff')
-      .attr('stroke-width', 0.5)
-      .style('cursor', 'pointer')
-      .on('mouseover', (event, d) => {
-        setHoveredCell(d);
-        d3.select(event.target).attr('stroke', '#000').attr('stroke-width', 2).attr('opacity', Math.min(opacity + 0.2, 1));
-        
-        const tooltip = d3.select(tooltipRef.current);
-        tooltip.style('display', 'block')
-          .style('left', `${event.clientX + 10}px`)
-          .style('top', `${event.clientY - 10}px`);
-      })
+    // Invisible overlay for mouse tracking
+    g.append('rect')
+      .attr('class', 'mouse-overlay')
+      .attr('width', innerWidth)
+      .attr('height', innerHeight)
+      .attr('fill', 'transparent')
+      .style('cursor', 'crosshair')
       .on('mousemove', (event) => {
-        d3.select(tooltipRef.current)
-          .style('left', `${event.clientX + 10}px`)
-          .style('top', `${event.clientY - 10}px`);
+        const [px, py] = d3.pointer(event);
+        const dataX = xScale.invert(px);
+        const dataY = yScale.invert(py);
+        
+        // Check if inside buildings
+        const insideBuilding = showBuildings && buildingPolygons.length > 0 
+          ? isPointInsideBuildings(dataX, dataY, buildingPolygons)
+          : true;
+        
+        if (insideBuilding || !showBuildings) {
+          const nearestPoints = getKNearestNeighbors(dataX, dataY, spatialIndex, K_NEAREST_NEIGHBORS);
+          if (nearestPoints.length > 0) {
+            const value = idwInterpolationFast(nearestPoints, debouncedIdwPower);
+            setHoveredValue({ value, x: dataX, y: dataY });
+            setMousePos({ x: event.clientX, y: event.clientY });
+            
+            d3.select(tooltipRef.current)
+              .style('display', 'block')
+              .style('left', `${event.clientX + 10}px`)
+              .style('top', `${event.clientY - 10}px`);
+          } else {
+            setHoveredValue(null);
+            d3.select(tooltipRef.current).style('display', 'none');
+          }
+        } else {
+          setHoveredValue(null);
+          d3.select(tooltipRef.current).style('display', 'none');
+        }
       })
-      .on('mouseout', (event) => {
-        setHoveredCell(null);
-        d3.select(event.target).attr('stroke', '#fff').attr('stroke-width', 0.5).attr('opacity', opacity);
+      .on('mouseout', () => {
+        setHoveredValue(null);
+        setMousePos(null);
         d3.select(tooltipRef.current).style('display', 'none');
       });
 
-    // Axes - bottom for X
+    // Axes
     g.append('g')
       .attr('transform', `translate(0,${innerHeight})`)
       .call(d3.axisBottom(xScale).ticks(5))
@@ -294,7 +527,6 @@ function AreaCharacteristics() {
       .attr('text-anchor', 'middle')
       .text('X Coordinate');
 
-    // Y axis - at top since Y increases downward in data space
     g.append('g')
       .call(d3.axisLeft(yScale).ticks(5))
       .append('text')
@@ -328,7 +560,7 @@ function AreaCharacteristics() {
       .enter()
       .append('stop')
       .attr('offset', d => `${d * 100}%`)
-      .attr('stop-color', d => colorScale(d3.min(values) + d * (d3.max(values) - d3.min(values))));
+      .attr('stop-color', d => colorScale(minValue + d * (maxValue - minValue)));
 
     legend.append('rect')
       .attr('width', legendWidth)
@@ -347,7 +579,7 @@ function AreaCharacteristics() {
       .attr('font-size', '12px')
       .text(currentMetricConfig.label);
 
-  }, [processedData, debouncedGridSize, currentMetricConfig, buildingsData, opacity]);
+  }, [processedData, debouncedGridSize, currentMetricConfig, buildingsData, debouncedOpacity, debouncedIdwPower, showBuildings, buildingPolygons]);
 
   const formatValue = (value, metricId) => {
     if (value == null) return 'N/A';
@@ -358,7 +590,7 @@ function AreaCharacteristics() {
     return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
   };
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <div className="visualization-container">
         <div className="loading">Loading area characteristics...</div>
@@ -416,7 +648,7 @@ function AreaCharacteristics() {
             step={10}
             value={gridSize}
             onChange={(e) => setGridSize(Number(e.target.value))}
-            style={{ width: '150px' }}
+            style={{ width: '120px' }}
           />
           <input
             type="text"
@@ -438,9 +670,22 @@ function AreaCharacteristics() {
                 e.target.blur();
               }
             }}
-            style={{ width: '60px', padding: '4px 8px', border: '1px solid #ddd', borderRadius: '4px' }}
+            style={{ width: '50px', padding: '4px 6px', border: '1px solid #ddd', borderRadius: '4px' }}
           />
-          <span style={{ fontSize: '12px', color: '#666' }}>units</span>
+        </div>
+        <div className="control-group">
+          <label htmlFor="idw-slider">Smoothness:</label>
+          <input
+            type="range"
+            id="idw-slider"
+            min={MIN_IDW_POWER}
+            max={MAX_IDW_POWER}
+            step={0.1}
+            value={idwPower}
+            onChange={(e) => setIdwPower(Number(e.target.value))}
+            style={{ width: '100px' }}
+          />
+          <span style={{ fontSize: '12px', color: '#666', minWidth: '30px' }}>{idwPower.toFixed(1)}</span>
         </div>
         <div className="control-group">
           <label htmlFor="opacity-slider">Opacity:</label>
@@ -452,35 +697,34 @@ function AreaCharacteristics() {
             step="0.05"
             value={opacity}
             onChange={(e) => setOpacity(Number(e.target.value))}
-            style={{ width: '120px' }}
+            style={{ width: '80px' }}
           />
           <span style={{ fontSize: '12px', color: '#666', minWidth: '35px' }}>{(opacity * 100).toFixed(0)}%</span>
         </div>
-        <div className="control-group checkbox-group">
-          <label className="checkbox-label">
-            <input 
-              type="checkbox" 
-              checked={excludeOutliers} 
-              onChange={(e) => setExcludeOutliers(e.target.checked)} 
+        <div className="control-group">
+          <label>
+            <input
+              type="checkbox"
+              checked={showBuildings}
+              onChange={(e) => setShowBuildings(e.target.checked)}
             />
-            Exclude Outliers
+            <span style={{ marginLeft: '4px' }}>Buildings Only</span>
           </label>
-          <span className="checkbox-hint" title="Exclude participants who only logged data during the first month (<2000 records)">ⓘ</span>
         </div>
-        {loading && <span className="loading-indicator">Loading...</span>}
+        {loading && <span className="loading-indicator">Updating...</span>}
       </div>
       
-      <div className="chart-container">
+      <div className="chart-container" style={{ position: 'relative' }}>
+        <canvas ref={canvasRef} style={{ pointerEvents: 'none' }}></canvas>
         <svg ref={svgRef}></svg>
         <div ref={tooltipRef} className="tooltip" style={{ display: 'none' }}>
-          {hoveredCell && (
+          {hoveredValue && (
             <>
-              <strong>Area ({hoveredCell.grid_x}, {hoveredCell.grid_y})</strong>
+              <strong>Location ({hoveredValue.x.toFixed(0)}, {hoveredValue.y.toFixed(0)})</strong>
               <br />
-              {currentMetricConfig.label}: {formatValue(hoveredCell.value, selectedMetric)}
-              {hoveredCell.population && (
-                <><br />Population: {hoveredCell.population}</>
-              )}
+              {currentMetricConfig.label}: {formatValue(hoveredValue.value, selectedMetric)}
+              <br />
+              <span style={{ fontSize: '11px', color: '#888' }}>(Interpolated value)</span>
             </>
           )}
         </div>
@@ -489,19 +733,18 @@ function AreaCharacteristics() {
       <div className="info-panel">
         <h3>About This Visualization</h3>
         <p>
-          This heatmap shows the city divided into grid cells, with each cell colored 
-          according to the selected metric. The data represents characteristics of 
-          participants (volunteers) living in each area, aggregated over the entire 15-month period.
-          of the city's population.
+          This continuous heatmap uses Inverse Distance Weighting (IDW) interpolation 
+          to create a smooth surface from the grid-based data. Each point's color is 
+          calculated as a weighted average of nearby data points, where closer points 
+          have more influence.
         </p>
         <p>
-          <strong>Distinct areas can be identified by:</strong>
+          <strong>Controls:</strong>
         </p>
         <ul>
-          <li><strong>Demographics:</strong> Age distribution, education levels, household sizes</li>
-          <li><strong>Financial:</strong> Income levels and spending patterns</li>
-          <li><strong>Housing:</strong> Rental costs and apartment availability</li>
-          <li><strong>Venues:</strong> Concentration of restaurants, pubs, and employers</li>
+          <li><strong>Grid Size:</strong> Adjusts the underlying data sampling resolution</li>
+          <li><strong>Smoothness:</strong> Higher values create sharper transitions (more local), lower values create smoother gradients (more global)</li>
+          <li><strong>Buildings Only:</strong> When checked, only shows data within building boundaries</li>
         </ul>
       </div>
     </div>
