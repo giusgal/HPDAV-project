@@ -276,7 +276,7 @@ function AreaCharacteristics() {
   // Track if initial load is complete
   const initialLoadComplete = useRef(false);
   
-  // Refetch when grid size or excludeOutliers changes (but skip initial load)
+  // Refetch when grid size changes (but skip initial load)
   useEffect(() => {
     // Skip the first render - the useApi hook already fetched on mount
     if (!initialLoadComplete.current) {
@@ -284,8 +284,8 @@ function AreaCharacteristics() {
       return;
     }
     
-    refetch({ gridSize: debouncedGridSize, excludeOutliers });
-  }, [debouncedGridSize, excludeOutliers]);
+    refetch({ gridSize: debouncedGridSize });
+  }, [debouncedGridSize]);
 
   const currentMetricConfig = useMemo(() => 
     METRICS.find(m => m.id === selectedMetric), [selectedMetric]);
