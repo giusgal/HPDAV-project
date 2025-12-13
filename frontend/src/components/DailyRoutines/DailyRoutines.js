@@ -20,6 +20,7 @@ function DailyRoutines() {
   const [participant2, setParticipant2] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState('all');
+  const [dayType, setDayType] = useState('all'); // 'all', 'weekday', 'weekend'
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [tooltipContent, setTooltipContent] = useState(null);
   const [availableMonths, setAvailableMonths] = useState([]);
@@ -27,24 +28,24 @@ function DailyRoutines() {
   // First, fetch the list of participants
   const { data: listData, loading: listLoading, refetch: refetchList } = useApi(
     fetchParticipantRoutines, 
-    { month: selectedMonth }, 
+    { month: selectedMonth, dayType }, 
     true
   );
   
   // Then fetch detailed routines for selected participants
   const { data: routineData, loading: routineLoading, refetch: refetchRoutines } = useApi(
     fetchParticipantRoutines,
-    { participantIds: selectedIds.join(','), month: selectedMonth },
+    { participantIds: selectedIds.join(','), month: selectedMonth, dayType },
     false
   );
   
   // Fetch buildings data for map background
   const { data: buildingsData } = useApi(fetchBuildingsMapData, {}, true);
 
-  // Reload list when month changes
+  // Reload list when month or day type changes
   useEffect(() => {
-    refetchList({ month: selectedMonth });
-  }, [selectedMonth, refetchList]);
+    refetchList({ month: selectedMonth, dayType });
+  }, [selectedMonth, dayType, refetchList]);
   
   // Update available months when list data changes
   useEffect(() => {
@@ -64,12 +65,12 @@ function DailyRoutines() {
     }
   }, [listData]);
 
-  // Load routines when selection or month changes
+  // Load routines when selection, month, or day type changes
   useEffect(() => {
     if (selectedIds.length > 0) {
-      refetchRoutines({ participantIds: selectedIds.join(','), month: selectedMonth });
+      refetchRoutines({ participantIds: selectedIds.join(','), month: selectedMonth, dayType });
     }
-  }, [selectedIds, selectedMonth, refetchRoutines]);
+  }, [selectedIds, selectedMonth, dayType, refetchRoutines]);
 
   // Auto-update when participants change in the dropdowns
   useEffect(() => {
@@ -234,6 +235,29 @@ function DailyRoutines() {
             ))}
           </div>
         </div>
+        <div className="control-group day-type-control">
+          <label>Day Type:</label>
+          <div className="day-type-buttons">
+            <button
+              className={`day-type-button ${dayType === 'all' ? 'active' : ''}`}
+              onClick={() => setDayType('all')}
+            >
+              All Days
+            </button>
+            <button
+              className={`day-type-button ${dayType === 'weekday' ? 'active' : ''}`}
+              onClick={() => setDayType('weekday')}
+            >
+              Weekdays
+            </button>
+            <button
+              className={`day-type-button ${dayType === 'weekend' ? 'active' : ''}`}
+              onClick={() => setDayType('weekend')}
+            >
+              Weekends
+            </button>
+          </div>
+        </div>
         <div className="control-group">
           <label htmlFor="participant1">Participant 1:</label>
           <select 
@@ -300,6 +324,8 @@ function DailyRoutines() {
         <>
           <div className="selected-period-banner">
             <strong>Showing data for:</strong> {availableMonths.find(m => m.value === selectedMonth)?.label || 'All Months'}
+            {' | '}
+            <strong>Day Type:</strong> {dayType === 'all' ? 'All Days' : dayType === 'weekday' ? 'Weekdays (Mon-Fri)' : 'Weekends (Sat-Sun)'}
           </div>
           <div className="timeline-container" ref={timelineRef}></div>
           <div ref={tooltipRef} className="tooltip" style={{ display: 'none' }}>

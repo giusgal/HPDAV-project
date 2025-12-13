@@ -96,6 +96,60 @@
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.5);
 }
 
+/* Day Type Controls */
+.daily-routines .day-type-control {
+  flex-basis: 100%;
+  padding-top: 15px;
+  border-top: 1px solid #ddd;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.daily-routines .day-type-control label {
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.daily-routines .day-type-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.daily-routines .day-type-button {
+  padding: 8px 20px;
+  border: 2px solid #ddd;
+  border-radius: 6px;
+  background: white;
+  color: #555;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.daily-routines .day-type-button:hover {
+  border-color: #FF9800;
+  background: #fff8f0;
+  color: #333;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.daily-routines .day-type-button.active {
+  background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+  color: white;
+  border-color: #FF9800;
+  box-shadow: 0 3px 8px rgba(255, 152, 0, 0.4);
+  transform: translateY(-1px);
+}
+
+.daily-routines .day-type-button.active:hover {
+  box-shadow: 0 4px 12px rgba(255, 152, 0, 0.5);
+}
+
 .daily-routines .compare-btn {
   padding: 8px 20px;
   background: #2196F3;

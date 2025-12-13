@@ -648,12 +648,14 @@ def participant_routines():
     - participant_ids: Comma-separated participant IDs (e.g., "1,2" or "1")
     - date: Specific date to show (YYYY-MM-DD) or 'typical' for aggregated pattern (default: 'typical')
     - month: Filter by month number 1-6 (June-November) or 'all' (default: 'all')
+    - day_type: Filter by day type: 'all', 'weekday', or 'weekend' (default: 'all')
     """
     global _participants_cache
     
     participant_ids_str = request.args.get('participant_ids', '', type=str)
     date_param = request.args.get('date', 'typical', type=str)
     month_param = request.args.get('month', 'all', type=str)
+    day_type_param = request.args.get('day_type', 'all', type=str)
     
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -718,6 +720,23 @@ def participant_routines():
                 except (ValueError, AttributeError):
                     pass
             
+            # Add day type filter
+            day_type_filter = ""
+            if day_type_param == 'weekday':
+                day_type_filter = "EXTRACT(DOW FROM timestamp) BETWEEN 1 AND 5"  # Monday-Friday
+            elif day_type_param == 'weekend':
+                day_type_filter = "EXTRACT(DOW FROM timestamp) IN (0, 6)"  # Sunday, Saturday
+            
+            # Combine filters
+            if month_filter and day_type_filter:
+                combined_filter = f"{month_filter} AND {day_type_filter}"
+            elif month_filter:
+                combined_filter = month_filter
+            elif day_type_filter:
+                combined_filter = f"WHERE {day_type_filter}"
+            else:
+                combined_filter = ""
+            
             cur.execute(f"""
                 WITH participant_checkins AS (
                     SELECT 
@@ -729,7 +748,7 @@ def participant_routines():
                         COUNT(*) FILTER (WHERE venuetype = 'Pub') as pub_checkins,
                         COUNT(DISTINCT DATE(timestamp)) as days_tracked
                     FROM checkinjournal
-                    {month_filter}
+                    {combined_filter}
                     GROUP BY participantid
                 )
                 SELECT 
@@ -779,6 +798,13 @@ def participant_routines():
                 except (ValueError, AttributeError):
                     pass
             
+            # Add day type filter
+            day_type_filter = ""
+            if day_type_param == 'weekday':
+                day_type_filter = "AND EXTRACT(DOW FROM timestamp) BETWEEN 1 AND 5"  # Monday-Friday
+            elif day_type_param == 'weekend':
+                day_type_filter = "AND EXTRACT(DOW FROM timestamp) IN (0, 6)"  # Sunday, Saturday
+            
             # Use checkinjournal for typical pattern (much faster than participantstatuslogs)
             cur.execute(f"""
                 SELECT 
@@ -786,7 +812,7 @@ def participant_routines():
                     venuetype::text as activity,
                     COUNT(*) as count
                 FROM checkinjournal
-                WHERE participantid = %s {month_filter}
+                WHERE participantid = %s {month_filter} {day_type_filter}
                 GROUP BY EXTRACT(HOUR FROM timestamp), venuetype
                 ORDER BY hour, count DESC
             """, tuple(query_params))
@@ -857,6 +883,13 @@ def participant_routines():
                 except (ValueError, AttributeError):
                     pass
             
+            # Add day type filter
+            day_type_filter = ""
+            if day_type_param == 'weekday':
+                day_type_filter = "AND EXTRACT(DOW FROM timestamp) BETWEEN 1 AND 5"  # Monday-Friday
+            elif day_type_param == 'weekend':
+                day_type_filter = "AND EXTRACT(DOW FROM timestamp) IN (0, 6)"  # Sunday, Saturday
+            
             if date_param == 'typical':
                 cur.execute(f"""
                     SELECT 
@@ -864,7 +897,7 @@ def participant_routines():
                         venuetype::text as venue_type,
                         COUNT(*) as visit_count
                     FROM checkinjournal
-                    WHERE participantid = %s {month_filter}
+                    WHERE participantid = %s {month_filter} {day_type_filter}
                     GROUP BY EXTRACT(HOUR FROM timestamp), venuetype
                     ORDER BY hour
                 """, (pid,))
@@ -875,7 +908,7 @@ def participant_routines():
                         venuetype::text as venue_type,
                         COUNT(*) as visit_count
                     FROM checkinjournal
-                    WHERE participantid = %s AND DATE(timestamp) = %s {month_filter}
+                    WHERE participantid = %s AND DATE(timestamp) = %s {month_filter} {day_type_filter}
                     GROUP BY EXTRACT(HOUR FROM timestamp), venuetype
                     ORDER BY hour
                 """, (pid, date_param))
@@ -898,6 +931,13 @@ def participant_routines():
         else:
             month_filter_travel = ""
         
+        # Add day type filter for travel routes
+        day_type_filter_travel = ""
+        if day_type_param == 'weekday':
+            day_type_filter_travel = "AND EXTRACT(DOW FROM psl.timestamp) BETWEEN 1 AND 5"  # Monday-Friday
+        elif day_type_param == 'weekend':
+            day_type_filter_travel = "AND EXTRACT(DOW FROM psl.timestamp) IN (0, 6)"  # Sunday, Saturday
+        
         travel_routes = {}
         for pid in participant_ids:
             cur.execute(f"""
@@ -912,6 +952,7 @@ def participant_routines():
                     WHERE participantid = %s
                         AND currentlocation IS NOT NULL
                         {month_filter_travel}
+                        {day_type_filter_travel}
                     ORDER BY timestamp
                 )
                 SELECT 

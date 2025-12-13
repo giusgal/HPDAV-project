@@ -78,15 +78,17 @@ export const fetchTrafficPatterns = async (params = {}) => {
  * @param {string} params.participantIds - Comma-separated participant IDs
  * @param {string} params.date - Date filter (default: 'typical')
  * @param {string} params.month - Month filter (default: 'all')
+ * @param {string} params.dayType - Day type filter (default: 'all')
  * @returns {Promise<Object>} Participant routines data
  */
 export const fetchParticipantRoutines = async (params = {}) => {
-  const { participantIds = '', date = 'typical', month = 'all' } = params;
+  const { participantIds = '', date = 'typical', month = 'all', dayType = 'all' } = params;
   const response = await apiClient.get('/api/participant-routines', {
     params: { 
       participant_ids: participantIds,
       date,
-      month
+      month,
+      day_type: dayType
     }
   });
   return response.data;
