@@ -44,6 +44,15 @@ class DailyRoutinesChart {
     
     this.margin = { top: 40, right: 30, bottom: 60, left: 150 };
     this.rowHeight = 60;
+    
+    // Venue colors for map points
+    this.venueColors = {
+      'apartments': '#3498db',
+      'employers': '#e74c3c',
+      'pubs': '#9b59b6',
+      'restaurants': '#f39c12',
+      'schools': '#2ecc71',
+    };
   }
 
   /**
@@ -64,8 +73,11 @@ class DailyRoutinesChart {
    * @param {Object} params.routines - Object keyed by participant ID with routine data
    * @param {Object} params.travelRoutes - Travel routes for participants
    * @param {Object} params.buildingsData - Building data for map background
+   * @param {Object} params.visibleVenueLayers - Which venue layers to show on map
    */
-  update({ routines, travelRoutes = {}, buildingsData = null }) {
+  update({ routines, travelRoutes = {}, buildingsData = null, visibleVenueLayers = null }) {
+    this.visibleVenueLayers = visibleVenueLayers;
+    this.routineData = routines;
     if (!routines || Object.keys(routines).length === 0) return;
 
     const participantIds = Object.keys(routines).map(Number);
@@ -338,6 +350,11 @@ class DailyRoutinesChart {
       .attr('class', 'travel-map')
       .attr('transform', `translate(${mapOffsetX}, ${mapMargin.top})`);
     
+    // Create sub-groups for layering
+    this.buildingsLayer = this.mapG.append('g').attr('class', 'buildings-layer');
+    this.routesLayer = this.mapG.append('g').attr('class', 'routes-layer');
+    this.venuesLayer = this.mapG.append('g').attr('class', 'venues-layer');
+    
     // Title - centered above the map
     this.mapG.append('text')
       .attr('x', actualMapWidth / 2)
@@ -355,23 +372,45 @@ class DailyRoutinesChart {
       .domain([bounds.minY, bounds.maxY])
       .range([innerHeight, 0]);
       
-    this.renderMapContent(this.mapG, travelRoutes, participantIds, buildingsData, xScale, yScale, actualMapWidth, innerHeight);
+    this.renderMapContent(this.mapG, travelRoutes, participantIds, buildingsData, xScale, yScale, actualMapWidth, innerHeight, this.visibleVenueLayers, this.routineData);
+  }
+
+  /**
+   * Get building fill color based on type.
+   */
+  getBuildingColor(buildingType) {
+    const colors = {
+      'Apartments': 'rgba(100, 149, 237, 0.15)',      // Cornflower blue - residential
+      'Common Areas': 'rgba(60, 179, 113, 0.15)',     // Medium sea green - parks/common
+      'Restaurants': 'rgba(255, 140, 0, 0.15)',       // Dark orange - dining
+      'Pubs': 'rgba(220, 20, 60, 0.15)',              // Crimson - entertainment
+      'Schools': 'rgba(255, 215, 0, 0.15)',           // Gold - education
+      'Employers': 'rgba(138, 43, 226, 0.15)'         // Blue violet - workplace
+    };
+    return colors[buildingType] || 'rgba(200, 200, 200, 0.15)';
+  }
+
+  /**
+   * Get building stroke color based on type.
+   */
+  getBuildingStroke(buildingType) {
+    const strokes = {
+      'Apartments': '#6495ED',      // Cornflower blue
+      'Common Areas': '#3CB371',    // Medium sea green
+      'Restaurants': '#FF8C00',     // Dark orange
+      'Pubs': '#DC143C',            // Crimson
+      'Schools': '#FFD700',         // Gold
+      'Employers': '#8A2BE2'        // Blue violet
+    };
+    return strokes[buildingType] || '#999';
   }
 
   /**
    * Render the actual map content (buildings and routes).
    */
-  renderMapContent(mapGroup, travelRoutes, participantIds, buildingsData, xScale, yScale, actualMapWidth, innerHeight) {
+  renderMapContent(mapGroup, travelRoutes, participantIds, buildingsData, xScale, yScale, actualMapWidth, innerHeight, visibleVenueLayers, routineData) {
     
-    // Add white background
-    mapGroup.append('rect')
-      .attr('x', 0)
-      .attr('y', 0)
-      .attr('width', actualMapWidth)
-      .attr('height', innerHeight)
-      .attr('fill', 'white');
-    
-    // Render buildings
+    // Render buildings with type-based colors
     if (buildingsData?.buildings) {
       const lineGenerator = d3.line()
         .x(d => xScale(d.x))
@@ -382,14 +421,15 @@ class DailyRoutinesChart {
         .map(b => ({ ...b, points: this.parsePolygon(b.location) }))
         .filter(b => b.points && b.points.length >= 3);
       
-      mapGroup.selectAll('path.building')
+      this.buildingsLayer.selectAll('path.building')
         .data(buildingsWithPaths)
         .join('path')
         .attr('class', 'building')
         .attr('d', d => lineGenerator(d.points))
-        .attr('fill', 'rgba(200, 200, 200, 0.3)')
-        .attr('stroke', '#999')
-        .attr('stroke-width', 0.5);
+        .attr('fill', d => this.getBuildingColor(d.buildingtype))
+        .attr('stroke', d => this.getBuildingStroke(d.buildingtype))
+        .attr('stroke-width', 0.5)
+        .attr('opacity', 0.8);
     }
     
     // Color scale for participants
@@ -406,7 +446,7 @@ class DailyRoutinesChart {
         const count = route.movement_count || route.trip_count || 1;
         
         // Draw straight line (no curves)
-        mapGroup.append('line')
+        this.routesLayer.append('line')
           .attr('x1', xScale(route.start_x))
           .attr('y1', yScale(route.start_y))
           .attr('x2', xScale(route.end_x))
@@ -416,6 +456,12 @@ class DailyRoutinesChart {
           .attr('opacity', 0.6);
       });
     });
+    
+    // Render venues if available
+    this.renderVenuesOnMap(buildingsData, xScale, yScale, visibleVenueLayers);
+    
+    // Render workplace markers for selected participants
+    this.renderWorkplaceMarkers(participantIds, routineData, xScale, yScale, participantColors);
       
     
     // Legend with white background - positioned at top right
@@ -449,6 +495,139 @@ class DailyRoutinesChart {
         .attr('font-size', '12px')
         .text(`Participant ${pid}`);
     });
+  }
+
+  /**
+   * Render workplace markers for selected participants.
+   */
+  renderWorkplaceMarkers(participantIds, routineData, xScale, yScale, participantColors) {
+    if (!routineData) return;
+    
+    const self = this;
+    const workplaceData = [];
+    
+    participantIds.forEach(pid => {
+      const routine = routineData[pid];
+      if (routine?.workplace) {
+        workplaceData.push({
+          participantId: pid,
+          x: routine.workplace.x,
+          y: routine.workplace.y,
+          visitCount: routine.workplace.visit_count
+        });
+      }
+    });
+    
+    if (workplaceData.length === 0) return;
+    
+    // Create a group for workplace markers
+    const workplaceGroup = this.venuesLayer.append('g').attr('class', 'workplace-markers');
+    
+    workplaceGroup.selectAll('rect.workplace-marker')
+      .data(workplaceData)
+      .join('rect')
+      .attr('class', 'workplace-marker')
+      .attr('x', d => xScale(d.x) - 12)
+      .attr('y', d => yScale(d.y) - 12)
+      .attr('width', 24)
+      .attr('height', 24)
+      .attr('fill', 'rgba(220, 20, 60, 0.7)')  // Red color
+      .attr('stroke', '#fff')
+      .attr('stroke-width', 2.5)
+      .attr('rx', 2)
+      .style('cursor', 'pointer')
+      .on('mouseover', function(event, d) {
+        d3.select(this)
+          .attr('width', 28)
+          .attr('height', 28)
+          .attr('x', d => xScale(d.x) - 14)
+          .attr('y', d => yScale(d.y) - 14)
+          .attr('stroke-width', 3);
+        
+        if (self.controller.onWorkplaceHover) {
+          self.controller.onWorkplaceHover(d, event);
+        }
+      })
+      .on('mouseout', function(event, d) {
+        d3.select(this)
+          .attr('width', 24)
+          .attr('height', 24)
+          .attr('x', d => xScale(d.x) - 12)
+          .attr('y', d => yScale(d.y) - 12)
+          .attr('stroke-width', 2.5);
+        
+        if (self.controller.onWorkplaceLeave) {
+          self.controller.onWorkplaceLeave();
+        }
+      });
+  }
+
+  /**
+   * Render venue points on the map.
+   */
+  renderVenuesOnMap(buildingsData, xScale, yScale, visibleVenueLayers) {
+    if (!buildingsData?.venues) return;
+    
+    const self = this;
+    const venues = buildingsData.venues;
+    
+    // Render each venue type
+    Object.keys(this.venueColors).forEach(venueType => {
+      const isVisible = visibleVenueLayers ? visibleVenueLayers[venueType] : true;
+      const venueData = isVisible ? (venues[venueType] || []) : [];
+      const color = this.venueColors[venueType];
+      
+      this.venuesLayer.selectAll(`circle.venue-${venueType}`)
+        .data(venueData, d => d.id)
+        .join(
+          enter => enter.append('circle')
+            .attr('class', `venue-${venueType}`)
+            .attr('r', 0)
+            .attr('fill', color)
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 1.5)
+            .style('cursor', 'pointer')
+            .call(sel => self.bindVenueEvents(sel, venueType))
+            .transition()
+            .duration(300)
+            .attr('r', 5),
+          update => update,
+          exit => exit
+            .transition()
+            .duration(200)
+            .attr('r', 0)
+            .remove()
+        )
+        .attr('cx', d => xScale(d.x))
+        .attr('cy', d => yScale(d.y));
+    });
+  }
+  
+  /**
+   * Bind mouse events to venue points.
+   */
+  bindVenueEvents(selection, venueType) {
+    const self = this;
+    
+    selection
+      .on('mouseover', function(event, d) {
+        d3.select(this)
+          .attr('r', 8)
+          .attr('stroke-width', 2.5);
+        
+        if (self.controller.onVenueHover) {
+          self.controller.onVenueHover(d, venueType, event);
+        }
+      })
+      .on('mouseout', function() {
+        d3.select(this)
+          .attr('r', 5)
+          .attr('stroke-width', 1.5);
+        
+        if (self.controller.onVenueLeave) {
+          self.controller.onVenueLeave();
+        }
+      });
   }
 
   /**

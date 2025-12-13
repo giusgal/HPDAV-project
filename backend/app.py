@@ -784,6 +784,29 @@ def participant_routines():
         t0 = time.time()
         routines = {}
         
+        # Get workplace coordinates for each participant (most frequent workplace)
+        workplace_coords = {}
+        for pid in participant_ids:
+            cur.execute("""
+                SELECT 
+                    e.location[0] as x,
+                    e.location[1] as y,
+                    COUNT(*) as visit_count
+                FROM checkinjournal c
+                JOIN employers e ON e.employerid = c.venueid
+                WHERE c.participantid = %s AND c.venuetype = 'Workplace'
+                GROUP BY e.employerid, e.location
+                ORDER BY visit_count DESC
+                LIMIT 1
+            """, (pid,))
+            workplace = cur.fetchone()
+            if workplace:
+                workplace_coords[pid] = {
+                    'x': workplace['x'],
+                    'y': workplace['y'],
+                    'visit_count': workplace['visit_count']
+                }
+        
         for pid in participant_ids:
             # Get participant info
             participant_info = next((p for p in _participants_cache if p['participantid'] == pid), None)
@@ -869,7 +892,8 @@ def participant_routines():
                 'participant': participant_info,
                 'type': 'typical',
                 'timeline': timeline,
-                'days_sampled': days_result['days'] if days_result else 0
+                'days_sampled': days_result['days'] if days_result else 0,
+                'workplace': workplace_coords.get(pid, None)
             }
         
         # Get checkin data for these participants (venue visits)
@@ -947,7 +971,8 @@ def participant_routines():
                         currentlocation[1] as y,
                         timestamp,
                         LAG(currentlocation[0]) OVER (ORDER BY timestamp) as prev_x,
-                        LAG(currentlocation[1]) OVER (ORDER BY timestamp) as prev_y
+                        LAG(currentlocation[1]) OVER (ORDER BY timestamp) as prev_y,
+                        LAG(timestamp) OVER (ORDER BY timestamp) as prev_timestamp
                     FROM participantstatuslogs psl
                     WHERE participantid = %s
                         AND currentlocation IS NOT NULL
@@ -965,10 +990,12 @@ def participant_routines():
                 WHERE prev_x IS NOT NULL 
                     AND prev_y IS NOT NULL
                     AND (prev_x != x OR prev_y != y)  -- Only actual movements
+                    AND EXTRACT(EPOCH FROM (timestamp - prev_timestamp)) <= 1800  -- Max 30 minutes between positions
+                    AND SQRT(POWER(x - prev_x, 2) + POWER(y - prev_y, 2)) <= 3000  -- Max 3000 units distance
                 GROUP BY prev_x, prev_y, x, y
-                HAVING COUNT(*) >= 1  -- Include all movements
+                HAVING COUNT(*) >= 2  -- At least 2 occurrences of the same route
                 ORDER BY movement_count DESC
-                LIMIT 200
+                LIMIT 150
             """, (pid,))
             
             routes = [dict(row) for row in cur.fetchall()]

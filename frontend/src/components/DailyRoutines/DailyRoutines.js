@@ -11,6 +11,15 @@ const SUGGESTED_PAIRS = [
   { ids: [10, 200], description: 'Early bird vs. night owl' },
 ];
 
+// Venue layer configuration
+const VENUE_LAYERS = [
+  { id: 'apartments', label: 'Apartments', color: '#3498db' },
+  { id: 'employers', label: 'Employers', color: '#e74c3c' },
+  { id: 'pubs', label: 'Pubs', color: '#9b59b6' },
+  { id: 'restaurants', label: 'Restaurants', color: '#f39c12' },
+  { id: 'schools', label: 'Schools', color: '#2ecc71' },
+];
+
 function DailyRoutines() {
   const timelineRef = useRef(null);
   const tooltipRef = useRef(null);
@@ -24,6 +33,13 @@ function DailyRoutines() {
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [tooltipContent, setTooltipContent] = useState(null);
   const [availableMonths, setAvailableMonths] = useState([]);
+  const [visibleVenueLayers, setVisibleVenueLayers] = useState({
+    apartments: false,
+    employers: false,
+    pubs: true,
+    restaurants: true,
+    schools: true,
+  });
   
   // First, fetch the list of participants
   const { data: listData, loading: listLoading, refetch: refetchList } = useApi(
@@ -100,6 +116,13 @@ function DailyRoutines() {
     setShowSuggestions(false);
   };
 
+  const handleVenueLayerToggle = (layerId) => {
+    setVisibleVenueLayers(prev => ({
+      ...prev,
+      [layerId]: !prev[layerId]
+    }));
+  };
+
   // Sort participants by how different their routines are
   const sortedParticipants = useMemo(() => {
     if (!listData?.routine_summaries) return [];
@@ -149,6 +172,46 @@ function DailyRoutines() {
         d3.select(tooltipRef.current).style('display', 'none');
       }
     },
+    onVenueHover: (venue, venueType, event) => {
+      setTooltipContent({
+        type: 'venue',
+        venue: venue,
+        venueType: venueType
+      });
+      if (tooltipRef.current) {
+        d3.select(tooltipRef.current)
+          .style('display', 'block')
+          .style('left', `${event.pageX + 10}px`)
+          .style('top', `${event.pageY - 80}px`);
+      }
+    },
+    onVenueLeave: () => {
+      setTooltipContent(null);
+      if (tooltipRef.current) {
+        d3.select(tooltipRef.current).style('display', 'none');
+      }
+    },
+    onWorkplaceHover: (workplace, event) => {
+      setTooltipContent({
+        type: 'workplace',
+        participantId: workplace.participantId,
+        visitCount: workplace.visitCount,
+        x: workplace.x,
+        y: workplace.y
+      });
+      if (tooltipRef.current) {
+        d3.select(tooltipRef.current)
+          .style('display', 'block')
+          .style('left', `${event.pageX + 10}px`)
+          .style('top', `${event.pageY - 80}px`);
+      }
+    },
+    onWorkplaceLeave: () => {
+      setTooltipContent(null);
+      if (tooltipRef.current) {
+        d3.select(tooltipRef.current).style('display', 'none');
+      }
+    },
   }), []);
 
   // Update chart when routine data changes (lazy initialization)
@@ -167,7 +230,8 @@ function DailyRoutines() {
     chartRef.current.update({
       routines: routineData.routines,
       travelRoutes: routineData.travel_routes || {},
-      buildingsData: buildingsData
+      buildingsData: buildingsData,
+      visibleVenueLayers: visibleVenueLayers
     });
   }, [routineData, buildingsData, chartController, selectedMonth]);
 
@@ -203,6 +267,28 @@ function DailyRoutines() {
         <>
           <strong>{tooltipContent.hour}:00</strong><br />
           {tooltipContent.venueType}: {tooltipContent.visitCount} visits
+        </>
+      );
+    }
+
+    if (tooltipContent.type === 'venue') {
+      const venue = tooltipContent.venue;
+      const venueType = tooltipContent.venueType;
+      return (
+        <>
+          <strong>{venueType.charAt(0).toUpperCase() + venueType.slice(1)}</strong><br />
+          {venue.buildingid && (<>Building ID: {venue.buildingid}<br /></>)}
+          Location: ({venue.x.toFixed(0)}, {venue.y.toFixed(0)})
+        </>
+      );
+    }
+
+    if (tooltipContent.type === 'workplace') {
+      return (
+        <>
+          <strong>Workplace - Participant {tooltipContent.participantId}</strong><br />
+          Total visits: {tooltipContent.visitCount}<br />
+          Location: ({tooltipContent.x.toFixed(0)}, {tooltipContent.y.toFixed(0)})
         </>
       );
     }
@@ -330,6 +416,26 @@ function DailyRoutines() {
           <div className="timeline-container" ref={timelineRef}></div>
           <div ref={tooltipRef} className="tooltip" style={{ display: 'none' }}>
             {renderTooltipContent()}
+          </div>
+          
+          <div className="venue-layer-controls">
+            <label className="control-label">Show Venues on Map:</label>
+            <div className="venue-checkboxes">
+              {VENUE_LAYERS.map(layer => (
+                <label key={layer.id} className="venue-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={visibleVenueLayers[layer.id]}
+                    onChange={() => handleVenueLayerToggle(layer.id)}
+                  />
+                  <span 
+                    className="venue-color-indicator" 
+                    style={{ backgroundColor: layer.color }}
+                  />
+                  {layer.label}
+                </label>
+              ))}
+            </div>
           </div>
           
           <div className="comparison-summary">

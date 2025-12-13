@@ -398,6 +398,60 @@
   color: #333;
 }
 
+/* Venue Layer Controls */
+.daily-routines .venue-layer-controls {
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 15px 20px;
+  margin-bottom: 20px;
+}
+
+.daily-routines .venue-layer-controls .control-label {
+  font-weight: 600;
+  margin-bottom: 10px;
+  display: block;
+  color: #333;
+  font-size: 14px;
+}
+
+.daily-routines .venue-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.daily-routines .venue-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  user-select: none;
+}
+
+.daily-routines .venue-checkbox-label:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.daily-routines .venue-checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
+
+.daily-routines .venue-color-indicator {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.3);
+}
+
 /* Loading State */
 .daily-routines .loading {
   padding: 40px;
