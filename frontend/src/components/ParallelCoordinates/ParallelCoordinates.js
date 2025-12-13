@@ -9,7 +9,8 @@ function ParallelCoordinates() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedParticipant, setSelectedParticipant] = useState(null);
+  const [selectedParticipant1, setSelectedParticipant1] = useState(null);
+  const [selectedParticipant2, setSelectedParticipant2] = useState(null);
   const [excludeOutliers, setExcludeOutliers] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -67,38 +68,66 @@ function ParallelCoordinates() {
 
     if (data && data.participants) {
       console.log('ParallelCoordinates: Updating chart with data:', data.participants.length, 'participants');
-      console.log('Selected participant:', selectedParticipant);
+      console.log('Selected participants:', selectedParticipant1, selectedParticipant2);
       
-      // Always update chart, even if selectedParticipant is null
-      chartInstanceRef.current.update(data, selectedParticipant);
+      // Pass both selected participants
+      chartInstanceRef.current.update(data, [selectedParticipant1, selectedParticipant2]);
     }
-  }, [data, selectedParticipant]);
+  }, [data, selectedParticipant1, selectedParticipant2]);
 
-  const handleParticipantChange = (e) => {
+  const handleParticipant1Change = (e) => {
     const value = e.target.value;
     if (value === '') {
-      setSelectedParticipant(null); // Allow clearing the selection
+      setSelectedParticipant1(null);
       return;
     }
     const participantId = parseInt(value);
     if (!isNaN(participantId) && data?.participants?.some(p => p.participantid === participantId)) {
-      setSelectedParticipant(participantId);
+      setSelectedParticipant1(participantId);
     }
   };
 
-  const handlePrevious = () => {
-    if (!data || !data.participants || selectedParticipant === null) return;
-    const currentIndex = data.participants.findIndex(p => p.participantid === selectedParticipant);
+  const handleParticipant2Change = (e) => {
+    const value = e.target.value;
+    if (value === '') {
+      setSelectedParticipant2(null);
+      return;
+    }
+    const participantId = parseInt(value);
+    if (!isNaN(participantId) && data?.participants?.some(p => p.participantid === participantId)) {
+      setSelectedParticipant2(participantId);
+    }
+  };
+
+  const handlePrevious1 = () => {
+    if (!data || !data.participants || selectedParticipant1 === null) return;
+    const currentIndex = data.participants.findIndex(p => p.participantid === selectedParticipant1);
     if (currentIndex > 0) {
-      setSelectedParticipant(data.participants[currentIndex - 1].participantid);
+      setSelectedParticipant1(data.participants[currentIndex - 1].participantid);
     }
   };
 
-  const handleNext = () => {
-    if (!data || !data.participants || selectedParticipant === null) return;
-    const currentIndex = data.participants.findIndex(p => p.participantid === selectedParticipant);
+  const handleNext1 = () => {
+    if (!data || !data.participants || selectedParticipant1 === null) return;
+    const currentIndex = data.participants.findIndex(p => p.participantid === selectedParticipant1);
     if (currentIndex < data.participants.length - 1) {
-      setSelectedParticipant(data.participants[currentIndex + 1].participantid);
+      setSelectedParticipant1(data.participants[currentIndex + 1].participantid);
+    }
+  };
+
+  const handlePrevious2 = () => {
+    if (!data || !data.participants || selectedParticipant2 === null) return;
+    const currentIndex = data.participants.findIndex(p => p.participantid === selectedParticipant2);
+    if (currentIndex > 0) {
+      setSelectedParticipant2(data.participants[currentIndex - 1].participantid);
+    }
+  };
+
+  const handleNext2 = () => {
+    if (!data || !data.participants || selectedParticipant2 === null) return;
+    const currentIndex = data.participants.findIndex(p => p.participantid === selectedParticipant2);
+    if (currentIndex < data.participants.length - 1) {
+      setSelectedParticipant2(data.participants[currentIndex + 1].participantid);
     }
   };
 
@@ -115,30 +144,60 @@ function ParallelCoordinates() {
       {loading && <div className="loading-overlay">Loading parallel coordinates data...</div>}
       <div className="controls">
         <div className="control-group">
-          <label htmlFor="participant-input">Person Id</label>
+          <label htmlFor="participant-input-1">Person 1 Id</label>
           <div className="participant-selector">
             <button 
               className="nav-button"
-              onClick={handlePrevious}
-              disabled={!data || !data.participants || selectedParticipant === null || 
-                data.participants.findIndex(p => p.participantid === selectedParticipant) === 0}
+              onClick={handlePrevious1}
+              disabled={!data || !data.participants || selectedParticipant1 === null || 
+                data.participants.findIndex(p => p.participantid === selectedParticipant1) === 0}
             >
               ◀
             </button>
             <input
-              id="participant-input"
+              id="participant-input-1"
               type="number"
-              value={selectedParticipant !== null ? selectedParticipant : ''}
-              onChange={handleParticipantChange}
+              value={selectedParticipant1 !== null ? selectedParticipant1 : ''}
+              onChange={handleParticipant1Change}
               placeholder="Enter ID"
               min="0"
               max={data?.participants ? data.participants[data.participants.length - 1].participantid : 0}
             />
             <button 
               className="nav-button"
-              onClick={handleNext}
-              disabled={!data || !data.participants || selectedParticipant === null || 
-                data.participants.findIndex(p => p.participantid === selectedParticipant) === data.participants.length - 1}
+              onClick={handleNext1}
+              disabled={!data || !data.participants || selectedParticipant1 === null || 
+                data.participants.findIndex(p => p.participantid === selectedParticipant1) === data.participants.length - 1}
+            >
+              ▶
+            </button>
+          </div>
+        </div>
+        <div className="control-group">
+          <label htmlFor="participant-input-2">Person 2 Id</label>
+          <div className="participant-selector">
+            <button 
+              className="nav-button"
+              onClick={handlePrevious2}
+              disabled={!data || !data.participants || selectedParticipant2 === null || 
+                data.participants.findIndex(p => p.participantid === selectedParticipant2) === 0}
+            >
+              ◀
+            </button>
+            <input
+              id="participant-input-2"
+              type="number"
+              value={selectedParticipant2 !== null ? selectedParticipant2 : ''}
+              onChange={handleParticipant2Change}
+              placeholder="Enter ID"
+              min="0"
+              max={data?.participants ? data.participants[data.participants.length - 1].participantid : 0}
+            />
+            <button 
+              className="nav-button"
+              onClick={handleNext2}
+              disabled={!data || !data.participants || selectedParticipant2 === null || 
+                data.participants.findIndex(p => p.participantid === selectedParticipant2) === data.participants.length - 1}
             >
               ▶
             </button>

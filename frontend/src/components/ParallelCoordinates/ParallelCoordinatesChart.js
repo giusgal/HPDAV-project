@@ -22,15 +22,19 @@ class ParallelCoordinatesChart {
     }
   }
 
-  update(data, selectedParticipantId) {
+  update(data, selectedParticipantIds) {
     if (!data || !data.participants) {
       console.log('No data or participants');
       return;
     }
 
+    // Expect selectedParticipantIds to be an array [id1, id2]
+    const [participantId1, participantId2] = selectedParticipantIds || [null, null];
+
     console.log('ParallelCoordinatesChart: update called');
     console.log('Container width:', this.container.clientWidth);
     console.log('Participants count:', data.participants.length);
+    console.log('Selected participants:', participantId1, participantId2);
 
     // Clear previous content
     d3.select(this.container).selectAll('*').remove();
@@ -90,46 +94,65 @@ class ParallelCoordinatesChart {
         .style('opacity', 0.3);
     });
 
-    // Draw highlighted line for selected participant
-    if (selectedParticipantId !== null && selectedParticipantId !== undefined) {
-      const selectedParticipant = data.participants.find(
-        p => p.participantid === selectedParticipantId
-      );
+    // Draw highlighted lines for selected participants
+    const hasSelection1 = participantId1 !== null && participantId1 !== undefined;
+    const hasSelection2 = participantId2 !== null && participantId2 !== undefined;
 
-      if (selectedParticipant) {
+    if (hasSelection1) {
+      const participant1 = data.participants.find(p => p.participantid === participantId1);
+      if (participant1) {
         const pathData = this.dimensions.map(dim => [
           dim.key,
-          y[dim.key](selectedParticipant[dim.key] || 0)
+          y[dim.key](participant1[dim.key] || 0)
         ]);
 
         this.svg.append('path')
           .datum(pathData)
-          .attr('class', 'highlighted-line')
+          .attr('class', 'highlighted-line participant-1')
           .attr('d', line)
           .style('fill', 'none')
           .style('stroke', '#e74c3c')
           .style('stroke-width', 2.5)
           .style('opacity', 1);
-
-        // Add title only if there's a selection
-        this.svg.append('text')
-          .attr('x', width / 2)
-          .attr('y', -30)
-          .attr('text-anchor', 'middle')
-          .style('font-size', '18px')
-          .style('font-weight', 'bold')
-          .text(`Participant ${selectedParticipantId}`);
       }
-    } else {
-      // No selection - add generic title
-      this.svg.append('text')
-        .attr('x', width / 2)
-        .attr('y', -30)
-        .attr('text-anchor', 'middle')
-        .style('font-size', '18px')
-        .style('font-weight', 'bold')
-        .text('All Participants');
     }
+
+    if (hasSelection2) {
+      const participant2 = data.participants.find(p => p.participantid === participantId2);
+      if (participant2) {
+        const pathData = this.dimensions.map(dim => [
+          dim.key,
+          y[dim.key](participant2[dim.key] || 0)
+        ]);
+
+        this.svg.append('path')
+          .datum(pathData)
+          .attr('class', 'highlighted-line participant-2')
+          .attr('d', line)
+          .style('fill', 'none')
+          .style('stroke', '#2ecc71')
+          .style('stroke-width', 2.5)
+          .style('opacity', 1);
+      }
+    }
+
+    // Add title based on selections
+    let titleText = 'All Participants';
+    if (hasSelection1 && hasSelection2) {
+      titleText = `Participant ${participantId1} (red) vs ${participantId2} (green)`;
+    } else if (hasSelection1) {
+      titleText = `Participant ${participantId1}`;
+    } else if (hasSelection2) {
+      titleText = `Participant ${participantId2}`;
+    }
+
+    this.svg.append('text')
+      .attr('x', width / 2)
+      .attr('y', -30)
+      .attr('text-anchor', 'middle')
+      .style('font-size', '18px')
+      .style('font-weight', 'bold')
+      .text(titleText);
 
     // Draw axes
     this.dimensions.forEach(dim => {
