@@ -784,29 +784,6 @@ def participant_routines():
         t0 = time.time()
         routines = {}
         
-        # Get workplace coordinates for each participant (most frequent workplace)
-        workplace_coords = {}
-        for pid in participant_ids:
-            cur.execute("""
-                SELECT 
-                    e.location[0] as x,
-                    e.location[1] as y,
-                    COUNT(*) as visit_count
-                FROM checkinjournal c
-                JOIN employers e ON e.employerid = c.venueid
-                WHERE c.participantid = %s AND c.venuetype = 'Workplace'
-                GROUP BY e.employerid, e.location
-                ORDER BY visit_count DESC
-                LIMIT 1
-            """, (pid,))
-            workplace = cur.fetchone()
-            if workplace:
-                workplace_coords[pid] = {
-                    'x': workplace['x'],
-                    'y': workplace['y'],
-                    'visit_count': workplace['visit_count']
-                }
-        
         for pid in participant_ids:
             # Get participant info
             participant_info = next((p for p in _participants_cache if p['participantid'] == pid), None)
@@ -888,12 +865,49 @@ def participant_routines():
             """, (pid,))
             days_result = cur.fetchone()
             
+            # Get participant's home (apartment) and work (employer) locations
+            cur.execute("""
+                SELECT DISTINCT ON (psl.participantid)
+                    a.location[0] as home_x,
+                    a.location[1] as home_y,
+                    a.apartmentid
+                FROM participantstatuslogs psl
+                JOIN apartments a ON a.apartmentid = psl.apartmentid
+                WHERE psl.participantid = %s
+                  AND psl.apartmentid IS NOT NULL
+                LIMIT 1
+            """, (pid,))
+            home_result = cur.fetchone()
+            
+            cur.execute("""
+                SELECT DISTINCT ON (psl.participantid)
+                    e.location[0] as work_x,
+                    e.location[1] as work_y,
+                    e.employerid
+                FROM participantstatuslogs psl
+                JOIN jobs j ON j.jobid = psl.jobid
+                JOIN employers e ON e.employerid = j.employerid
+                WHERE psl.participantid = %s
+                  AND psl.jobid IS NOT NULL
+                LIMIT 1
+            """, (pid,))
+            work_result = cur.fetchone()
+            
             routines[pid] = {
                 'participant': participant_info,
                 'type': 'typical',
                 'timeline': timeline,
                 'days_sampled': days_result['days'] if days_result else 0,
-                'workplace': workplace_coords.get(pid, None)
+                'home_location': {
+                    'x': home_result['home_x'],
+                    'y': home_result['home_y'],
+                    'apartmentid': home_result['apartmentid']
+                } if home_result else None,
+                'work_location': {
+                    'x': work_result['work_x'],
+                    'y': work_result['work_y'],
+                    'employerid': work_result['employerid']
+                } if work_result else None
             }
         
         # Get checkin data for these participants (venue visits)

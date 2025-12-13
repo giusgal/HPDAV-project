@@ -191,27 +191,6 @@ function DailyRoutines() {
         d3.select(tooltipRef.current).style('display', 'none');
       }
     },
-    onWorkplaceHover: (workplace, event) => {
-      setTooltipContent({
-        type: 'workplace',
-        participantId: workplace.participantId,
-        visitCount: workplace.visitCount,
-        x: workplace.x,
-        y: workplace.y
-      });
-      if (tooltipRef.current) {
-        d3.select(tooltipRef.current)
-          .style('display', 'block')
-          .style('left', `${event.pageX + 10}px`)
-          .style('top', `${event.pageY - 80}px`);
-      }
-    },
-    onWorkplaceLeave: () => {
-      setTooltipContent(null);
-      if (tooltipRef.current) {
-        d3.select(tooltipRef.current).style('display', 'none');
-      }
-    },
   }), []);
 
   // Update chart when routine data changes (lazy initialization)
@@ -274,21 +253,33 @@ function DailyRoutines() {
     if (tooltipContent.type === 'venue') {
       const venue = tooltipContent.venue;
       const venueType = tooltipContent.venueType;
+      
+      // Handle home and work markers
+      if (venueType === 'home') {
+        return (
+          <>
+            <strong>🏠 Home - Participant {venue.participantId}</strong><br />
+            Apartment ID: {venue.apartmentid}<br />
+            Location: ({venue.x.toFixed(0)}, {venue.y.toFixed(0)})
+          </>
+        );
+      }
+      
+      if (venueType === 'work') {
+        return (
+          <>
+            <strong>💼 Workplace - Participant {venue.participantId}</strong><br />
+            Employer ID: {venue.employerid}<br />
+            Location: ({venue.x.toFixed(0)}, {venue.y.toFixed(0)})
+          </>
+        );
+      }
+      
       return (
         <>
           <strong>{venueType.charAt(0).toUpperCase() + venueType.slice(1)}</strong><br />
           {venue.buildingid && (<>Building ID: {venue.buildingid}<br /></>)}
           Location: ({venue.x.toFixed(0)}, {venue.y.toFixed(0)})
-        </>
-      );
-    }
-
-    if (tooltipContent.type === 'workplace') {
-      return (
-        <>
-          <strong>Workplace - Participant {tooltipContent.participantId}</strong><br />
-          Total visits: {tooltipContent.visitCount}<br />
-          Location: ({tooltipContent.x.toFixed(0)}, {tooltipContent.y.toFixed(0)})
         </>
       );
     }

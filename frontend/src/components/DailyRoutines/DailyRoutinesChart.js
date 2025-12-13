@@ -77,7 +77,7 @@ class DailyRoutinesChart {
    */
   update({ routines, travelRoutes = {}, buildingsData = null, visibleVenueLayers = null }) {
     this.visibleVenueLayers = visibleVenueLayers;
-    this.routineData = routines;
+    this.routines = routines; // Store for use in map rendering
     if (!routines || Object.keys(routines).length === 0) return;
 
     const participantIds = Object.keys(routines).map(Number);
@@ -354,6 +354,7 @@ class DailyRoutinesChart {
     this.buildingsLayer = this.mapG.append('g').attr('class', 'buildings-layer');
     this.routesLayer = this.mapG.append('g').attr('class', 'routes-layer');
     this.venuesLayer = this.mapG.append('g').attr('class', 'venues-layer');
+    this.participantMarkersLayer = this.mapG.append('g').attr('class', 'participant-markers-layer');
     
     // Title - centered above the map
     this.mapG.append('text')
@@ -372,7 +373,7 @@ class DailyRoutinesChart {
       .domain([bounds.minY, bounds.maxY])
       .range([innerHeight, 0]);
       
-    this.renderMapContent(this.mapG, travelRoutes, participantIds, buildingsData, xScale, yScale, actualMapWidth, innerHeight, this.visibleVenueLayers, this.routineData);
+    this.renderMapContent(this.mapG, travelRoutes, participantIds, buildingsData, xScale, yScale, actualMapWidth, innerHeight, this.visibleVenueLayers, this.routines);
   }
 
   /**
@@ -408,7 +409,7 @@ class DailyRoutinesChart {
   /**
    * Render the actual map content (buildings and routes).
    */
-  renderMapContent(mapGroup, travelRoutes, participantIds, buildingsData, xScale, yScale, actualMapWidth, innerHeight, visibleVenueLayers, routineData) {
+  renderMapContent(mapGroup, travelRoutes, participantIds, buildingsData, xScale, yScale, actualMapWidth, innerHeight, visibleVenueLayers, routines = {}) {
     
     // Render buildings with type-based colors
     if (buildingsData?.buildings) {
@@ -460,16 +461,15 @@ class DailyRoutinesChart {
     // Render venues if available
     this.renderVenuesOnMap(buildingsData, xScale, yScale, visibleVenueLayers);
     
-    // Render workplace markers for selected participants
-    this.renderWorkplaceMarkers(participantIds, routineData, xScale, yScale, participantColors);
-      
+    // Render home (green star) and work (red star) markers for each participant
+    this.renderParticipantMarkers(routines, participantIds, xScale, yScale, participantColors);
     
     // Legend with white background - positioned at top right
     const legendGroup = mapGroup.append('g')
       .attr('transform', `translate(${actualMapWidth - 160}, 20)`);
     
-    // Legend background
-    const legendHeight = participantIds.length * 25 + 10;
+    // Legend background - increased height for home/work markers
+    const legendHeight = participantIds.length * 25 + 70;
     legendGroup.append('rect')
       .attr('x', -5)
       .attr('y', -5)
@@ -495,71 +495,35 @@ class DailyRoutinesChart {
         .attr('font-size', '12px')
         .text(`Participant ${pid}`);
     });
-  }
-
-  /**
-   * Render workplace markers for selected participants.
-   */
-  renderWorkplaceMarkers(participantIds, routineData, xScale, yScale, participantColors) {
-    if (!routineData) return;
     
-    const self = this;
-    const workplaceData = [];
+    // Add home/work markers legend
+    const markersLegendY = participantIds.length * 25 + 20;
     
-    participantIds.forEach(pid => {
-      const routine = routineData[pid];
-      if (routine?.workplace) {
-        workplaceData.push({
-          participantId: pid,
-          x: routine.workplace.x,
-          y: routine.workplace.y,
-          visitCount: routine.workplace.visit_count
-        });
-      }
-    });
+    // Home star (green)
+    legendGroup.append('path')
+      .attr('d', this.getStarPath(20, markersLegendY, 8))
+      .attr('fill', '#4CAF50')
+      .attr('stroke', '#2E7D32')
+      .attr('stroke-width', 1.5);
     
-    if (workplaceData.length === 0) return;
+    legendGroup.append('text')
+      .attr('x', 40)
+      .attr('y', markersLegendY + 4)
+      .attr('font-size', '12px')
+      .text('Home');
     
-    // Create a group for workplace markers
-    const workplaceGroup = this.venuesLayer.append('g').attr('class', 'workplace-markers');
+    // Work star (red)
+    legendGroup.append('path')
+      .attr('d', this.getStarPath(20, markersLegendY + 25, 8))
+      .attr('fill', '#F44336')
+      .attr('stroke', '#C62828')
+      .attr('stroke-width', 1.5);
     
-    workplaceGroup.selectAll('rect.workplace-marker')
-      .data(workplaceData)
-      .join('rect')
-      .attr('class', 'workplace-marker')
-      .attr('x', d => xScale(d.x) - 12)
-      .attr('y', d => yScale(d.y) - 12)
-      .attr('width', 24)
-      .attr('height', 24)
-      .attr('fill', 'rgba(220, 20, 60, 0.7)')  // Red color
-      .attr('stroke', '#fff')
-      .attr('stroke-width', 2.5)
-      .attr('rx', 2)
-      .style('cursor', 'pointer')
-      .on('mouseover', function(event, d) {
-        d3.select(this)
-          .attr('width', 28)
-          .attr('height', 28)
-          .attr('x', d => xScale(d.x) - 14)
-          .attr('y', d => yScale(d.y) - 14)
-          .attr('stroke-width', 3);
-        
-        if (self.controller.onWorkplaceHover) {
-          self.controller.onWorkplaceHover(d, event);
-        }
-      })
-      .on('mouseout', function(event, d) {
-        d3.select(this)
-          .attr('width', 24)
-          .attr('height', 24)
-          .attr('x', d => xScale(d.x) - 12)
-          .attr('y', d => yScale(d.y) - 12)
-          .attr('stroke-width', 2.5);
-        
-        if (self.controller.onWorkplaceLeave) {
-          self.controller.onWorkplaceLeave();
-        }
-      });
+    legendGroup.append('text')
+      .attr('x', 40)
+      .attr('y', markersLegendY + 29)
+      .attr('font-size', '12px')
+      .text('Work');
   }
 
   /**
@@ -628,6 +592,145 @@ class DailyRoutinesChart {
           self.controller.onVenueLeave();
         }
       });
+  }
+
+  /**
+   * Generate SVG path for a 5-pointed star.
+   * @param {number} cx - Center x coordinate
+   * @param {number} cy - Center y coordinate
+   * @param {number} r - Outer radius of the star
+   * @returns {string} SVG path string
+   */
+  getStarPath(cx, cy, r) {
+    const innerRadius = r * 0.4;
+    const points = 5;
+    let path = '';
+    
+    for (let i = 0; i < points * 2; i++) {
+      const radius = i % 2 === 0 ? r : innerRadius;
+      const angle = (i * Math.PI / points) - (Math.PI / 2); // Start from top
+      const x = cx + radius * Math.cos(angle);
+      const y = cy + radius * Math.sin(angle);
+      path += (i === 0 ? 'M' : 'L') + x + ',' + y;
+    }
+    path += 'Z';
+    return path;
+  }
+
+  /**
+   * Render home and work markers (stars) for each participant.
+   */
+  renderParticipantMarkers(routines, participantIds, xScale, yScale, participantColors) {
+    if (!routines || !this.participantMarkersLayer) return;
+    
+    const self = this;
+    
+    participantIds.forEach((pid, idx) => {
+      const routine = routines[pid];
+      if (!routine) return;
+      
+      const participantColor = participantColors(pid);
+      
+      // Render home location (green star)
+      if (routine.home_location) {
+        const homeX = xScale(routine.home_location.x);
+        const homeY = yScale(routine.home_location.y);
+        
+        // Add glow effect
+        this.participantMarkersLayer.append('path')
+          .attr('class', `home-marker-glow-${pid}`)
+          .attr('d', this.getStarPath(homeX, homeY, 14))
+          .attr('fill', 'none')
+          .attr('stroke', '#4CAF50')
+          .attr('stroke-width', 3)
+          .attr('opacity', 0.3);
+        
+        // Main star
+        this.participantMarkersLayer.append('path')
+          .attr('class', `home-marker-${pid}`)
+          .attr('d', this.getStarPath(homeX, homeY, 12))
+          .attr('fill', '#4CAF50')
+          .attr('stroke', '#2E7D32')
+          .attr('stroke-width', 2)
+          .style('cursor', 'pointer')
+          .on('mouseover', function(event) {
+            d3.select(this).attr('d', self.getStarPath(homeX, homeY, 15));
+            if (self.controller.onVenueHover) {
+              self.controller.onVenueHover({
+                x: routine.home_location.x,
+                y: routine.home_location.y,
+                apartmentid: routine.home_location.apartmentid,
+                participantId: pid
+              }, 'home', event);
+            }
+          })
+          .on('mouseout', function() {
+            d3.select(this).attr('d', self.getStarPath(homeX, homeY, 12));
+            if (self.controller.onVenueLeave) {
+              self.controller.onVenueLeave();
+            }
+          });
+        
+        // Participant ID label near home
+        this.participantMarkersLayer.append('text')
+          .attr('x', homeX + 15)
+          .attr('y', homeY + 4)
+          .attr('font-size', '11px')
+          .attr('font-weight', 'bold')
+          .attr('fill', participantColor)
+          .text(`P${pid}`);
+      }
+      
+      // Render work location (red star)
+      if (routine.work_location) {
+        const workX = xScale(routine.work_location.x);
+        const workY = yScale(routine.work_location.y);
+        
+        // Add glow effect
+        this.participantMarkersLayer.append('path')
+          .attr('class', `work-marker-glow-${pid}`)
+          .attr('d', this.getStarPath(workX, workY, 14))
+          .attr('fill', 'none')
+          .attr('stroke', '#F44336')
+          .attr('stroke-width', 3)
+          .attr('opacity', 0.3);
+        
+        // Main star
+        this.participantMarkersLayer.append('path')
+          .attr('class', `work-marker-${pid}`)
+          .attr('d', this.getStarPath(workX, workY, 12))
+          .attr('fill', '#F44336')
+          .attr('stroke', '#C62828')
+          .attr('stroke-width', 2)
+          .style('cursor', 'pointer')
+          .on('mouseover', function(event) {
+            d3.select(this).attr('d', self.getStarPath(workX, workY, 15));
+            if (self.controller.onVenueHover) {
+              self.controller.onVenueHover({
+                x: routine.work_location.x,
+                y: routine.work_location.y,
+                employerid: routine.work_location.employerid,
+                participantId: pid
+              }, 'work', event);
+            }
+          })
+          .on('mouseout', function() {
+            d3.select(this).attr('d', self.getStarPath(workX, workY, 12));
+            if (self.controller.onVenueLeave) {
+              self.controller.onVenueLeave();
+            }
+          });
+        
+        // Participant ID label near work
+        this.participantMarkersLayer.append('text')
+          .attr('x', workX + 15)
+          .attr('y', workY + 4)
+          .attr('font-size', '11px')
+          .attr('font-weight', 'bold')
+          .attr('fill', participantColor)
+          .text(`P${pid}`);
+      }
+    });
   }
 
   /**
