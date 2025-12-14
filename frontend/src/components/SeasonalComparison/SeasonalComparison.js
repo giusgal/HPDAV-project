@@ -62,12 +62,11 @@ const SeasonalComparison = () => {
     setLoading(true);
     try {
       // Prepare API params with optional bounding box
+      // Note: dayType and timePeriod filters are applied client-side in the chart
       const apiParams = { 
         granularity: 'daily', 
         metric: 'activity', 
-        excludeOutliers,
-        dayType: dayTypeFilter,
-        timePeriod: timePeriodFilter
+        excludeOutliers
       };
       
       // Add bounding box if geo filter is enabled and applied coordinates exist
@@ -96,7 +95,7 @@ const SeasonalComparison = () => {
     } finally {
       setLoading(false);
     }
-  }, [excludeOutliers, enableGeoFilter, timelineGranularity, dayTypeFilter, timePeriodFilter]);
+  }, [excludeOutliers, enableGeoFilter, timelineGranularity]);
   
   // Load map data for geographic selection
   const loadMapData = useCallback(async () => {
@@ -274,6 +273,11 @@ const SeasonalComparison = () => {
 
   useEffect(() => {
     if (!calendarChartRef.current || !data?.daily || activeView !== 'calendar') return;
+    // Force re-initialization when categories change to ensure proper update
+    if (calendarChartInstance.current) {
+      calendarChartInstance.current.destroy();
+      calendarChartInstance.current = null;
+    }
     if (!calendarChartInstance.current) {
       calendarChartInstance.current = new CalendarHeatmap(calendarChartRef.current);
       calendarChartInstance.current.initialize();
@@ -392,11 +396,36 @@ const SeasonalComparison = () => {
 
               <div className="control-item">
                 <div className="category-pills">
-                  <button className={`pill work ${activeCategories.work ? 'active' : ''}`} onClick={() => toggleCategory('work')}>💼 Work</button>
-                  <button className={`pill home ${activeCategories.home ? 'active' : ''}`} onClick={() => toggleCategory('home')}>🏠 Home</button>
-                  <button className={`pill restaurant ${activeCategories.restaurant ? 'active' : ''}`} onClick={() => toggleCategory('restaurant')}>🍽 Restaurant</button>
-                  <button className={`pill pub ${activeCategories.pub ? 'active' : ''}`} onClick={() => toggleCategory('pub')}>🍺 Pub</button>
+                  <button 
+                    className={`pill work ${activeCategories.work ? 'active' : ''}`} 
+                    onClick={() => toggleCategory('work')}
+                    disabled={timePeriodFilter !== 'all'}
+                    style={timePeriodFilter !== 'all' ? { opacity: 0.4, cursor: 'not-allowed' } : {}}
+                  >💼 Work</button>
+                  <button 
+                    className={`pill home ${activeCategories.home ? 'active' : ''}`} 
+                    onClick={() => toggleCategory('home')}
+                    disabled={timePeriodFilter !== 'all'}
+                    style={timePeriodFilter !== 'all' ? { opacity: 0.4, cursor: 'not-allowed' } : {}}
+                  >🏠 Home</button>
+                  <button 
+                    className={`pill restaurant ${activeCategories.restaurant ? 'active' : ''}`} 
+                    onClick={() => toggleCategory('restaurant')}
+                    disabled={timePeriodFilter !== 'all'}
+                    style={timePeriodFilter !== 'all' ? { opacity: 0.4, cursor: 'not-allowed' } : {}}
+                  >🍽 Restaurant</button>
+                  <button 
+                    className={`pill pub ${activeCategories.pub ? 'active' : ''}`} 
+                    onClick={() => toggleCategory('pub')}
+                    disabled={timePeriodFilter !== 'all'}
+                    style={timePeriodFilter !== 'all' ? { opacity: 0.4, cursor: 'not-allowed' } : {}}
+                  >🍺 Pub</button>
                 </div>
+                {timePeriodFilter !== 'all' && (
+                  <span style={{ fontSize: '9px', color: '#e74c3c', marginLeft: '8px' }}>
+                    (disabled with time filter)
+                  </span>
+                )}
               </div>
             </>
           )}
