@@ -108,15 +108,27 @@ export const fetchTemporalPatterns = async (params = {}) => {
     granularity = 'weekly', 
     metric = 'all',
     venueType = 'all',
-    excludeOutliers = false
+    excludeOutliers = false,
+    minLat,
+    maxLat,
+    minLon,
+    maxLon
   } = params;
+  const apiParams = { 
+    granularity,
+    metric,
+    venue_type: venueType,
+    exclude_outliers: excludeOutliers.toString()
+  };
+  
+  // Add bounding box parameters if provided
+  if (minLat !== undefined) apiParams.min_lat = minLat;
+  if (maxLat !== undefined) apiParams.max_lat = maxLat;
+  if (minLon !== undefined) apiParams.min_lon = minLon;
+  if (maxLon !== undefined) apiParams.max_lon = maxLon;
+  
   const response = await apiClient.get('/api/temporal-patterns', {
-    params: { 
-      granularity,
-      metric,
-      venue_type: venueType,
-      exclude_outliers: excludeOutliers.toString()
-    }
+    params: apiParams
   });
   return response.data;
 };

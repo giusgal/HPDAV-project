@@ -1043,6 +1043,7 @@ def temporal_patterns():
     - metric: 'activity', 'spending', 'social', 'all' (default: 'all')
     - venue_type: 'all', 'Restaurant', 'Pub', 'Apartment', 'Workplace' (default: 'all')
     - exclude_outliers: 'true' or 'false' - exclude participants with < 2000 records (default: 'false')
+    - min_lat, max_lat, min_lon, max_lon: bounding box coordinates (optional)
     """
     global _temporal_patterns_cache
     
@@ -1051,7 +1052,14 @@ def temporal_patterns():
     venue_type = request.args.get('venue_type', 'all', type=str)
     exclude_outliers = request.args.get('exclude_outliers', 'false', type=str).lower() == 'true'
     
-    cache_key = (granularity, metric, venue_type, exclude_outliers)
+    # Geographic bounding box parameters
+    min_lat = request.args.get('min_lat', type=float)
+    max_lat = request.args.get('max_lat', type=float)
+    min_lon = request.args.get('min_lon', type=float)
+    max_lon = request.args.get('max_lon', type=float)
+    has_geo_filter = all(v is not None for v in [min_lat, max_lat, min_lon, max_lon])
+    
+    cache_key = (granularity, metric, venue_type, exclude_outliers, min_lat, max_lat, min_lon, max_lon)
     if cache_key in _temporal_patterns_cache:
         logger.info(f"Using cached temporal patterns for key={cache_key}")
         return jsonify(_temporal_patterns_cache[cache_key])
@@ -1076,8 +1084,32 @@ def temporal_patterns():
             'granularity': granularity,
             'metric': metric,
             'venue_type': venue_type,
-            'exclude_outliers': exclude_outliers
+            'exclude_outliers': exclude_outliers,
+            'geo_filter': {'min_lat': min_lat, 'max_lat': max_lat, 'min_lon': min_lon, 'max_lon': max_lon} if has_geo_filter else None
         }
+        
+        # Build geographic filter subquery if bounding box is provided
+        geo_filter_join = ""
+        geo_filter_where = ""
+        if has_geo_filter:
+            geo_filter_join = """
+                LEFT JOIN (
+                    SELECT apartmentid as id, 'Apartment' as type, location FROM apartments
+                    UNION ALL
+                    SELECT pubid as id, 'Pub' as type, location FROM pubs
+                    UNION ALL
+                    SELECT restaurantid as id, 'Restaurant' as type, location FROM restaurants
+                    UNION ALL
+                    SELECT employerid as id, 'Workplace' as type, location FROM employers
+                ) venues ON c.venueid = venues.id AND c.venuetype::text = venues.type
+            """
+            geo_filter_where = f"""
+                AND venues.location IS NOT NULL
+                AND venues.location[0] >= {min_lon}
+                AND venues.location[0] <= {max_lon}
+                AND venues.location[1] >= {min_lat}
+                AND venues.location[1] <= {max_lat}
+            """
         
         # Determine date truncation based on granularity
         if granularity == 'daily':
@@ -1109,25 +1141,46 @@ def temporal_patterns():
             t0 = time.time()
             venue_filter = "WHERE 1=1"
             if venue_type != 'all':
-                venue_filter = f"WHERE venuetype = '{venue_type}'"
+                venue_filter = f"WHERE c.venuetype = '{venue_type}'"
+            
+            # Use alias 'c' for checkinjournal when geo filter is active
+            table_alias = "c" if has_geo_filter else "checkinjournal"
+            from_clause = f"checkinjournal c {geo_filter_join}" if has_geo_filter else "checkinjournal"
+            venuetype_col = "c.venuetype" if has_geo_filter else "venuetype"
+            timestamp_col = "c.timestamp" if has_geo_filter else "timestamp"
+            participantid_col = "c.participantid" if has_geo_filter else "participantid"
+            
+            # Adjust date_trunc for alias
+            if has_geo_filter:
+                if granularity == 'daily':
+                    date_trunc_activity = "DATE(c.timestamp)"
+                elif granularity == 'monthly':
+                    date_trunc_activity = "DATE_TRUNC('month', c.timestamp)"
+                else:
+                    date_trunc_activity = "DATE_TRUNC('week', c.timestamp)"
+            else:
+                date_trunc_activity = date_trunc
+            
+            # Adjust outlier filter for alias
+            outlier_filter_activity = outlier_filter.replace("participantid", participantid_col) if has_geo_filter and outlier_filter else outlier_filter
             
             cur.execute(f"""
                 SELECT 
-                    {date_trunc} as period,
+                    {date_trunc_activity} as period,
                     COUNT(*) as total_checkins,
-                    COUNT(DISTINCT participantid) as unique_visitors,
-                    COUNT(*) FILTER (WHERE venuetype = 'Restaurant') as restaurant_visits,
-                    COUNT(*) FILTER (WHERE venuetype = 'Pub') as pub_visits,
-                    COUNT(*) FILTER (WHERE venuetype = 'Apartment') as home_activity,
-                    COUNT(*) FILTER (WHERE venuetype = 'Workplace') as work_activity,
-                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM timestamp) BETWEEN 6 AND 9) as morning_activity,
-                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM timestamp) BETWEEN 10 AND 14) as midday_activity,
-                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM timestamp) BETWEEN 15 AND 18) as afternoon_activity,
-                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM timestamp) BETWEEN 19 AND 23) as evening_activity,
-                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM timestamp) BETWEEN 0 AND 5) as night_activity
-                FROM checkinjournal
-                {venue_filter} {outlier_filter}
-                GROUP BY {date_trunc}
+                    COUNT(DISTINCT {participantid_col}) as unique_visitors,
+                    COUNT(*) FILTER (WHERE {venuetype_col} = 'Restaurant') as restaurant_visits,
+                    COUNT(*) FILTER (WHERE {venuetype_col} = 'Pub') as pub_visits,
+                    COUNT(*) FILTER (WHERE {venuetype_col} = 'Apartment') as home_activity,
+                    COUNT(*) FILTER (WHERE {venuetype_col} = 'Workplace') as work_activity,
+                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM {timestamp_col}) BETWEEN 6 AND 9) as morning_activity,
+                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM {timestamp_col}) BETWEEN 10 AND 14) as midday_activity,
+                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM {timestamp_col}) BETWEEN 15 AND 18) as afternoon_activity,
+                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM {timestamp_col}) BETWEEN 19 AND 23) as evening_activity,
+                    COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM {timestamp_col}) BETWEEN 0 AND 5) as night_activity
+                FROM {from_clause}
+                {venue_filter} {outlier_filter_activity} {geo_filter_where}
+                GROUP BY {date_trunc_activity}
                 ORDER BY period
             """)
             activity_data = cur.fetchall()
