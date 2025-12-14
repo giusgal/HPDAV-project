@@ -13,7 +13,7 @@ import * as d3 from 'd3';
 const SEASONS = {
   spring: { name: 'Spring', months: [3, 4, 5], color: '#27ae60' },
   summer: { name: 'Summer', months: [6, 7, 8], color: '#f39c12' },
-  fall: { name: 'Fall', months: [9, 10, 11], color: '#e67e22' },
+  fall: { name: 'Fall', months: [9, 10, 11], color: '#e62222ff' },
   winter: { name: 'Winter', months: [12, 1, 2], color: '#3498db' }
 };
 

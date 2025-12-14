@@ -122,11 +122,11 @@ const SeasonalComparison = () => {
   
   // Initialize mini-map with brush when shown
   useEffect(() => {
-    if (!showMapSelector || !miniMapRef.current || !mapData) return;
+    if (!enableGeoFilter || !miniMapRef.current || !mapData) return;
     
     const container = miniMapRef.current;
-    const width = 600;
-    const height = 500;
+    const width = 450;
+    const height = 350;
     const margin = { top: 10, right: 10, bottom: 10, left: 10 };
     
     // Clear previous
@@ -249,7 +249,7 @@ const SeasonalComparison = () => {
       .attr('stroke', '#3498db')
       .attr('stroke-width', 2);
       
-  }, [showMapSelector, mapData, loadData]);
+  }, [enableGeoFilter, mapData, loadData]);
   
   // Load map data when geo filter is enabled
   useEffect(() => {
@@ -341,22 +341,6 @@ const SeasonalComparison = () => {
           {enableGeoFilter && (
             <>
               <button 
-                onClick={() => setShowMapSelector(!showMapSelector)}
-                style={{
-                  padding: '4px 12px',
-                  fontSize: '11px',
-                  background: showMapSelector ? '#2c3e50' : '#3498db',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontWeight: '500'
-                }}
-              >
-                {showMapSelector ? '🗺️ Hide Map' : '🗺️ Select Area'}
-              </button>
-              
-              <button 
                 onClick={clearGeoFilter}
                 style={{
                   padding: '4px 12px',
@@ -369,7 +353,7 @@ const SeasonalComparison = () => {
                   fontWeight: '500'
                 }}
               >
-                Clear
+                Clear Selection
               </button>
               
               {appliedGeoCoords.current && (
@@ -418,58 +402,66 @@ const SeasonalComparison = () => {
           )}
         </div>
 
-        {/* Mini-map for geographic selection */}
-        {showMapSelector && enableGeoFilter && (
-          <div className="geo-map-selector" style={{
-            background: 'white',
-            borderRadius: '6px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-            padding: '12px',
-            marginBottom: '12px'
-          }}>
-            <div style={{
+        {/* Main content area with map and charts side by side */}
+        <div style={{ display: 'flex', gap: '12px', flex: 1, minHeight: 0, overflow: 'visible' }}>
+          
+          {/* Mini-map for geographic selection - always visible when geo filter is on */}
+          {enableGeoFilter && activeView === 'calendar' && (
+            <div className="geo-map-selector" style={{
+              flex: '0 0 auto',
+              background: 'white',
+              borderRadius: '6px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              padding: '12px',
               display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: '8px'
+              flexDirection: 'column',
+              maxHeight: '100%',
+              overflow: 'visible'
             }}>
-              <span style={{fontSize: '12px', fontWeight: '600', color: '#2c3e50'}}>
-                📍 Draw a rectangle to select area
-              </span>
-              <span style={{fontSize: '10px', color: '#999'}}>
-                {appliedGeoCoords.current ? 
-                  `Selected: (${appliedGeoCoords.current.minLon.toFixed(0)}, ${appliedGeoCoords.current.minLat.toFixed(0)}) - (${appliedGeoCoords.current.maxLon.toFixed(0)}, ${appliedGeoCoords.current.maxLat.toFixed(0)})` : 
-                  'No area selected'}
-              </span>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '8px'
+              }}>
+                <span style={{fontSize: '12px', fontWeight: '600', color: '#2c3e50'}}>
+                  📍 Draw a rectangle to select area
+                </span>
+                <span style={{fontSize: '10px', color: '#999'}}>
+                  {appliedGeoCoords.current ? 
+                    `Selected: (${appliedGeoCoords.current.minLon.toFixed(0)}, ${appliedGeoCoords.current.minLat.toFixed(0)}) - (${appliedGeoCoords.current.maxLon.toFixed(0)}, ${appliedGeoCoords.current.maxLat.toFixed(0)})` : 
+                    'No area selected'}
+                </span>
+              </div>
+              <div 
+                ref={miniMapRef} 
+                style={{
+                  width: '450px',
+                  height: '350px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  background: '#f8f9fa',
+                  cursor: 'crosshair',
+                  flexShrink: 0
+                }}
+              />
+              <div style={{
+                marginTop: '8px',
+                display: 'flex',
+                gap: '8px',
+                fontSize: '10px',
+                color: '#666'
+              }}>
+                <span><span style={{display: 'inline-block', width: '8px', height: '8px', background: '#3498db', borderRadius: '50%', marginRight: '4px'}}></span>Apartments</span>
+                <span><span style={{display: 'inline-block', width: '8px', height: '8px', background: '#e74c3c', borderRadius: '50%', marginRight: '4px'}}></span>Employers</span>
+                <span><span style={{display: 'inline-block', width: '8px', height: '8px', background: '#9b59b6', borderRadius: '50%', marginRight: '4px'}}></span>Pubs</span>
+                <span><span style={{display: 'inline-block', width: '8px', height: '8px', background: '#f39c12', borderRadius: '50%', marginRight: '4px'}}></span>Restaurants</span>
+              </div>
             </div>
-            <div 
-              ref={miniMapRef} 
-              style={{
-                width: '600px',
-                height: '500px',
-                border: '1px solid #ddd',
-                borderRadius: '4px',
-                background: '#f8f9fa',
-                cursor: 'crosshair'
-              }}
-            />
-            <div style={{
-              marginTop: '8px',
-              display: 'flex',
-              gap: '8px',
-              fontSize: '10px',
-              color: '#666'
-            }}>
-              <span><span style={{display: 'inline-block', width: '8px', height: '8px', background: '#3498db', borderRadius: '50%', marginRight: '4px'}}></span>Apartments</span>
-              <span><span style={{display: 'inline-block', width: '8px', height: '8px', background: '#e74c3c', borderRadius: '50%', marginRight: '4px'}}></span>Employers</span>
-              <span><span style={{display: 'inline-block', width: '8px', height: '8px', background: '#9b59b6', borderRadius: '50%', marginRight: '4px'}}></span>Pubs</span>
-              <span><span style={{display: 'inline-block', width: '8px', height: '8px', background: '#f39c12', borderRadius: '50%', marginRight: '4px'}}></span>Restaurants</span>
-            </div>
-          </div>
-        )}
+          )}
 
-        {/* Chart area */}
-        <div className="chart-area">
+          {/* Chart area */}
+          <div className="chart-area" style={{ flex: 1, minWidth: 0 }}>
           <div className="chart-header">
             <span>{activeView === 'radar' ? 'Seasonal Radar' : 'Activity Calendar'}</span>
             {data?.dateRange && <span style={{opacity:0.7, fontSize:'11px'}}>{data.dateRange.start} — {data.dateRange.end}</span>}
@@ -480,6 +472,8 @@ const SeasonalComparison = () => {
             <div ref={radarChartRef} style={{ width: '100%', height: '100%', display: activeView === 'radar' ? 'block' : 'none' }} />
             <div ref={calendarChartRef} style={{ width: '100%', height: '100%', display: activeView === 'calendar' ? 'block' : 'none' }} />
           </div>
+        </div>
+
         </div>
 
         {/* Timeline chart - separate panel */}
