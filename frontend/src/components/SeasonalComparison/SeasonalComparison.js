@@ -65,7 +65,9 @@ const SeasonalComparison = () => {
       const apiParams = { 
         granularity: 'daily', 
         metric: 'activity', 
-        excludeOutliers 
+        excludeOutliers,
+        dayType: dayTypeFilter,
+        timePeriod: timePeriodFilter
       };
       
       // Add bounding box if geo filter is enabled and applied coordinates exist
@@ -94,7 +96,7 @@ const SeasonalComparison = () => {
     } finally {
       setLoading(false);
     }
-  }, [excludeOutliers, enableGeoFilter, timelineGranularity]);
+  }, [excludeOutliers, enableGeoFilter, timelineGranularity, dayTypeFilter, timePeriodFilter]);
   
   // Load map data for geographic selection
   const loadMapData = useCallback(async () => {
