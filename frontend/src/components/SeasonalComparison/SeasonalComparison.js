@@ -243,9 +243,9 @@ const SeasonalComparison = () => {
     
     // Style the brush
     g.select('.brush .selection')
-      .attr('fill', '#3498db')
+      .attr('fill', '#db3434ff')
       .attr('fill-opacity', 0.2)
-      .attr('stroke', '#3498db')
+      .attr('stroke', '#db3434ff')
       .attr('stroke-width', 2);
       
   }, [enableGeoFilter, mapData, loadData]);
@@ -454,7 +454,7 @@ const SeasonalComparison = () => {
                 marginBottom: '8px'
               }}>
                 <span style={{fontSize: '12px', fontWeight: '600', color: '#2c3e50'}}>
-                  📍 Draw a rectangle to select area
+                  Draw a rectangle to select area
                 </span>
                 <span style={{fontSize: '10px', color: '#999'}}>
                   {appliedGeoCoords.current ? 
