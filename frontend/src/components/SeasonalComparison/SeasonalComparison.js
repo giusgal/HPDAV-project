@@ -123,8 +123,8 @@ const SeasonalComparison = () => {
     if (!showMapSelector || !miniMapRef.current || !mapData) return;
     
     const container = miniMapRef.current;
-    const width = 300;
-    const height = 250;
+    const width = 600;
+    const height = 500;
     const margin = { top: 10, right: 10, bottom: 10, left: 10 };
     
     // Clear previous
@@ -443,8 +443,8 @@ const SeasonalComparison = () => {
             <div 
               ref={miniMapRef} 
               style={{
-                width: '300px',
-                height: '250px',
+                width: '600px',
+                height: '500px',
                 border: '1px solid #ddd',
                 borderRadius: '4px',
                 background: '#f8f9fa',
