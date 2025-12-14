@@ -226,6 +226,39 @@ export const fetchFlowMapData = async (params = {}) => {
 };
 
 /**
+ * Fetch traffic density data for individual trip line visualization.
+ * This endpoint returns raw individual trips (origin-destination pairs) without aggregation.
+ * @param {Object} params - Query parameters
+ * @param {string} params.dayType - Day type filter: 'all', 'weekday', 'weekend' (default: 'all')
+ * @param {string} params.purpose - Travel purpose filter (default: 'all')
+ * @param {string} params.startDate - Start date (YYYY-MM-DD, optional)
+ * @param {string} params.endDate - End date (YYYY-MM-DD, optional)
+ * @param {number} params.maxLines - Maximum number of lines to return (default: 50000)
+ * @returns {Promise<Object>} Traffic density data with individual trips and buildings
+ */
+export const fetchTrafficDensityData = async (params = {}) => {
+  const { 
+    dayType = 'all', 
+    purpose = 'all',
+    startDate,
+    endDate,
+    maxLines = 50000
+  } = params;
+  const apiParams = { 
+    day_type: dayType,
+    purpose,
+    max_lines: maxLines
+  };
+  if (startDate) apiParams.start_date = startDate;
+  if (endDate) apiParams.end_date = endDate;
+  
+  const response = await apiClient.get('/api/traffic-density', {
+    params: apiParams
+  });
+  return response.data;
+};
+
+/**
  * Fetch theme river data for streamgraph visualization.
  * @param {Object} params - Query parameters
  * @param {string} params.granularity - Time granularity: 'daily', 'weekly', 'monthly' (default: 'weekly')

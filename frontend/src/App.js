@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
-import { BuildingsMap, AreaCharacteristics, TrafficPatterns, DailyRoutines, TemporalPatterns, FlowMap, ThemeRiver, ParallelCoordinates, SeasonalComparison } from './components';
+import { BuildingsMap, AreaCharacteristics, TrafficPatterns, DailyRoutines, TemporalPatterns, FlowMap, TrafficDensity, ThemeRiver, ParallelCoordinates, SeasonalComparison } from './components';
 import './App.css';
 
 const VIEWS = {
@@ -8,6 +8,7 @@ const VIEWS = {
   "area-characteristics": {id: "area-characteristics", label: "Area Characteristics", component: AreaCharacteristics},
   'traffic-patterns': { id: 'traffic-patterns', label: 'Traffic Patterns', component: TrafficPatterns },
   'flow-map': { id: 'flow-map', label: 'Flow Map', component: FlowMap },
+  'traffic-density': { id: 'traffic-density', label: 'Traffic Density', component: TrafficDensity },
   'daily-routines': { id: 'daily-routines', label: 'Daily Routines', component: DailyRoutines },
   'temporal-patterns': { id: 'temporal-patterns', label: 'Temporal Patterns', component: TemporalPatterns },
   'theme-river': { id: 'theme-river', label: 'Theme River', component: ThemeRiver },

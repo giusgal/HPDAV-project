@@ -1930,6 +1930,290 @@ def flow_map():
         return jsonify({"error": str(e)}), 500
 
 
+# Cache for traffic density data
+_traffic_density_cache = {}
+
+@app.route('/api/traffic-density')
+def traffic_density():
+    """
+    Endpoint for traffic density visualization showing individual trip lines without aggregation.
+    
+    This endpoint returns raw individual trips (origin-destination coordinates) that can be
+    drawn as thin, semi-transparent lines. Overlapping lines create a density effect that
+    reveals traffic bottlenecks and high-traffic corridors.
+    
+    Parameters:
+    - day_type: 'all', 'weekday', 'weekend' (default: 'all')
+    - purpose: Travel purpose filter (default: 'all')
+    - start_date: Start date for filtering (YYYY-MM-DD, optional)
+    - end_date: End date for filtering (YYYY-MM-DD, optional)
+    - max_lines: Maximum number of trip lines to return (default: 50000)
+    """
+    global _traffic_density_cache
+    
+    day_type = request.args.get('day_type', 'all', type=str)
+    purpose = request.args.get('purpose', 'all', type=str)
+    start_date = request.args.get('start_date', None, type=str)
+    end_date = request.args.get('end_date', None, type=str)
+    max_lines = request.args.get('max_lines', 50000, type=int)
+    
+    cache_key = (day_type, purpose, start_date, end_date, max_lines)
+    if cache_key in _traffic_density_cache:
+        logger.info(f"Using cached traffic density data for key={cache_key}")
+        return jsonify(_traffic_density_cache[cache_key])
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    try:
+        results = {
+            'day_type': day_type,
+            'purpose': purpose,
+            'start_date': start_date,
+            'end_date': end_date,
+            'max_lines': max_lines
+        }
+        
+        # Get available date range from traveljournal
+        t0 = time.time()
+        cur.execute("""
+            SELECT 
+                MIN(travelstarttime::date) as min_date,
+                MAX(travelstarttime::date) as max_date
+            FROM traveljournal
+        """)
+        date_range = cur.fetchone()
+        results['available_dates'] = {
+            'min': str(date_range['min_date']) if date_range['min_date'] else None,
+            'max': str(date_range['max_date']) if date_range['max_date'] else None
+        }
+        logger.info(f"Date range query time = {time.time() - t0:.3f}s")
+        
+        # If no date range specified, return just metadata
+        if not start_date and not end_date:
+            logger.info("No date range specified - returning metadata only")
+            # Get city bounds
+            t0 = time.time()
+            cur.execute("""
+                SELECT 
+                    MIN(location[0]) as min_x, MAX(location[0]) as max_x,
+                    MIN(location[1]) as min_y, MAX(location[1]) as max_y
+                FROM apartments
+            """)
+            bounds = cur.fetchone()
+            results['bounds'] = {
+                'min_x': bounds['min_x'],
+                'max_x': bounds['max_x'],
+                'min_y': bounds['min_y'],
+                'max_y': bounds['max_y']
+            }
+            logger.info(f"Bounds query time = {time.time() - t0:.3f}s")
+            
+            # Get purpose options
+            cur.execute("SELECT DISTINCT purpose::text as purpose FROM traveljournal ORDER BY purpose")
+            results['purposes'] = [{'purpose': row['purpose']} for row in cur.fetchall()]
+            
+            results['trips'] = []
+            results['buildings'] = []
+            results['statistics'] = {'total_trips': 0}
+            
+            cur.close()
+            return_db_connection(conn)
+            return jsonify(results)
+        
+        # Get city bounds
+        t0 = time.time()
+        cur.execute("""
+            SELECT 
+                MIN(location[0]) as min_x, MAX(location[0]) as max_x,
+                MIN(location[1]) as min_y, MAX(location[1]) as max_y
+            FROM apartments
+        """)
+        bounds = cur.fetchone()
+        results['bounds'] = {
+            'min_x': bounds['min_x'],
+            'max_x': bounds['max_x'],
+            'min_y': bounds['min_y'],
+            'max_y': bounds['max_y']
+        }
+        logger.info(f"Bounds query time = {time.time() - t0:.3f}s")
+        
+        # Check if materialized view exists
+        t0 = time.time()
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT 1 FROM pg_matviews WHERE matviewname = 'trip_coordinates'
+            ) as mv_exists
+        """)
+        mv_exists = cur.fetchone()['mv_exists']
+        logger.info(f"MV check time = {time.time() - t0:.3f}s, exists = {mv_exists}")
+        
+        # Check if trip_date column exists in MV
+        mv_has_date = False
+        if mv_exists:
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT 1 
+                    FROM pg_attribute a
+                    JOIN pg_class c ON a.attrelid = c.oid
+                    JOIN pg_namespace n ON c.relnamespace = n.oid
+                    WHERE n.nspname = 'public'
+                      AND c.relname = 'trip_coordinates'
+                      AND a.attname = 'trip_date'
+                      AND a.attnum > 0
+                      AND NOT a.attisdropped
+                ) as has_date
+            """)
+            mv_has_date = cur.fetchone()['has_date']
+        
+        # Build filters
+        if day_type == 'weekday':
+            day_clause = "AND day_of_week BETWEEN 1 AND 5"
+        elif day_type == 'weekend':
+            day_clause = "AND day_of_week IN (0, 6)"
+        else:
+            day_clause = ""
+        
+        if purpose != 'all':
+            purpose_clause = f"AND purpose = '{purpose}'"
+        else:
+            purpose_clause = ""
+        
+        date_clause = ""
+        if mv_has_date:
+            if start_date:
+                date_clause += f" AND trip_date >= '{start_date}'::date"
+            if end_date:
+                date_clause += f" AND trip_date <= '{end_date}'::date"
+        
+        if mv_exists:
+            # Use materialized view - get individual trip coordinates
+            trips_query = f"""
+                SELECT 
+                    hour_bucket,
+                    start_x,
+                    start_y,
+                    end_x,
+                    end_y
+                FROM trip_coordinates
+                WHERE start_x IS NOT NULL AND end_x IS NOT NULL
+                  AND start_y IS NOT NULL AND end_y IS NOT NULL
+                  AND start_x != end_x AND start_y != end_y
+                  {day_clause} {purpose_clause} {date_clause}
+                LIMIT {max_lines}
+            """
+        else:
+            # Fallback: Use LATERAL join
+            day_clause_tj = day_clause.replace("day_of_week", "EXTRACT(DOW FROM t.travelstarttime)::int")
+            purpose_clause_tj = purpose_clause.replace("purpose", "t.purpose::text")
+            date_clause_tj = ""
+            if start_date:
+                date_clause_tj += f" AND t.travelstarttime::date >= '{start_date}'::date"
+            if end_date:
+                date_clause_tj += f" AND t.travelstarttime::date <= '{end_date}'::date"
+            
+            trips_query = f"""
+                SELECT 
+                    EXTRACT(HOUR FROM t.travelstarttime)::int as hour_bucket,
+                    start_loc.currentlocation[0] as start_x,
+                    start_loc.currentlocation[1] as start_y,
+                    end_loc.currentlocation[0] as end_x,
+                    end_loc.currentlocation[1] as end_y
+                FROM traveljournal t
+                LEFT JOIN LATERAL (
+                    SELECT currentlocation
+                    FROM participantstatuslogs psl
+                    WHERE psl.participantid = t.participantid 
+                      AND psl.timestamp <= t.travelstarttime
+                      AND psl.currentlocation IS NOT NULL
+                    ORDER BY psl.timestamp DESC
+                    LIMIT 1
+                ) start_loc ON true
+                LEFT JOIN LATERAL (
+                    SELECT currentlocation
+                    FROM participantstatuslogs psl
+                    WHERE psl.participantid = t.participantid 
+                      AND psl.timestamp >= t.travelendtime
+                      AND psl.currentlocation IS NOT NULL
+                    ORDER BY psl.timestamp ASC
+                    LIMIT 1
+                ) end_loc ON true
+                WHERE start_loc.currentlocation IS NOT NULL 
+                  AND end_loc.currentlocation IS NOT NULL
+                  AND start_loc.currentlocation[0] != end_loc.currentlocation[0]
+                  AND start_loc.currentlocation[1] != end_loc.currentlocation[1]
+                  {day_clause_tj} {purpose_clause_tj} {date_clause_tj}
+                LIMIT {max_lines}
+            """
+        
+        # Execute trips query
+        t0 = time.time()
+        cur.execute(trips_query)
+        trips = [dict(row) for row in cur.fetchall()]
+        logger.info(f"Trips query time = {time.time() - t0:.3f}s, trips = {len(trips)}")
+        results['trips'] = trips
+        
+        # Get total count for statistics
+        if mv_exists:
+            count_query = f"""
+                SELECT COUNT(*) as total
+                FROM trip_coordinates
+                WHERE start_x IS NOT NULL AND end_x IS NOT NULL
+                  AND start_y IS NOT NULL AND end_y IS NOT NULL
+                  {day_clause} {purpose_clause} {date_clause}
+            """
+        else:
+            count_query = f"""
+                SELECT COUNT(*) as total
+                FROM traveljournal t
+                WHERE 1=1 {day_clause_tj} {purpose_clause_tj} {date_clause_tj}
+            """
+        
+        t0 = time.time()
+        cur.execute(count_query)
+        total_count = cur.fetchone()['total']
+        logger.info(f"Count query time = {time.time() - t0:.3f}s")
+        
+        results['statistics'] = {
+            'total_trips': total_count
+        }
+        
+        # Get buildings for base map context
+        t0 = time.time()
+        cur.execute("""
+            SELECT 
+                buildingid,
+                location::text as location,
+                buildingtype::text as buildingtype
+            FROM buildings
+        """)
+        results['buildings'] = [dict(row) for row in cur.fetchall()]
+        logger.info(f"Buildings query time = {time.time() - t0:.3f}s")
+        
+        # Get purpose options
+        cur.execute("""
+            SELECT DISTINCT purpose::text as purpose, COUNT(*) as count
+            FROM traveljournal
+            GROUP BY purpose
+            ORDER BY count DESC
+        """)
+        results['purposes'] = [dict(row) for row in cur.fetchall()]
+        
+        # Cache results
+        _traffic_density_cache[cache_key] = results
+        
+        cur.close()
+        return_db_connection(conn)
+        
+        return jsonify(results)
+    
+    except Exception as e:
+        logger.error("Error in /api/traffic-density", exc_info=e)
+        cur.close()
+        return_db_connection(conn)
+        return jsonify({"error": str(e)}), 500
+
+
 # Cache for theme river data
 _theme_river_cache = {}
 
