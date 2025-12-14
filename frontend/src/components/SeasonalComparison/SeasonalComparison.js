@@ -461,7 +461,7 @@ const SeasonalComparison = () => {
           )}
 
           {/* Chart area */}
-          <div className="chart-area" style={{ flex: 1, minWidth: 0 }}>
+          <div className="chart-area" style={{ flex: 1, minWidth: 950 }}>
           <div className="chart-header">
             <span>{activeView === 'radar' ? 'Seasonal Radar' : 'Activity Calendar'}</span>
             {data?.dateRange && <span style={{opacity:0.7, fontSize:'11px'}}>{data.dateRange.start} — {data.dateRange.end}</span>}

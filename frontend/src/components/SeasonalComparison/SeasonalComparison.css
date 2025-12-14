@@ -135,6 +135,7 @@
   overflow: visible;
   display: flex;
   flex-direction: column;
+  min-width: 1000px;
 }
 
 /* Timeline panel - fixed height */

@@ -233,7 +233,7 @@ export class RadarChart {
 export class CalendarHeatmap {
   constructor(container) {
     this.container = container;
-    this.margin = { top: 50, right: 40, bottom: 30, left: 50 };
+    this.margin = { top: 50, right: 80, bottom: 30, left: 50 };
     this.tooltip = null;
   }
 
