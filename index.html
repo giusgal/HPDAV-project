@@ -104,6 +104,14 @@ Nicola Noventa, University of Luxembourg, <a href="mailto:nicola.noventa.001@stu
 <p>&nbsp;</p>
 
 <p class="calibri"><b>Questions</b></p>
+
+
+
+<!------------------------------------------->
+<!---------------- QUESTION 1---------------->
+<!------------------------------------------->
+
+
 <p class="calibri"><b>1</b> - <span class="arial">Assuming the volunteers are representative of the city's population, characterize the distinct areas of the city that you identify. For each area you identify, provide your rationale and supporting data. Limit your response to 10 images and 500 words.</span></p>
 
 <p class="calibri"><b><u>Urban Density and Residential Typologies</u></b></p>
@@ -150,15 +158,135 @@ Nicola Noventa, University of Luxembourg, <a href="mailto:nicola.noventa.001@stu
     <img src="report/1/income.png" style="max-width: 400px;"><br><small>Fig.7: Average Income Distribution</small>
 </div>
 
-<p class="calibri"><b>2</b> - <span class="arial">Where are the busiest areas in Engagement? Are there traffic bottlenecks that should be addressed? Explain your rationale. Limit your response to 10 images and 500 words.</span></p>
-<p class="calibri"><i>
-    Write here!
-</i></p>
+
+<!------------------------------------------->
+<!---------------- QUESTION 2---------------->
+<!------------------------------------------->
+
+    <p class="calibri"><b>2</b> - <span class="arial">Where are the busiest areas in Engagement? Are there traffic bottlenecks that should be addressed? Explain your rationale. Limit your response to 10 images and 500 words.</span></p>
+
+    <p class="calibri"><b><u>Temporal Traffic Patterns</u></b></p>
+
+    <div style="text-align: center; margin: 10px 0;">
+    <img src="report/2/plot.png" style="max-width: 600px;"><br>
+    <small>Fig.8: Hourly Activity Distribution</small>
+    </div>
+
+    <p class="calibri"><i>
+    Fig.8 shows the aggregate number of visits per hour, normalized with respect to the daily average. Higher bars indicate periods of increased engagement activity. The hourly activity distribution reveals clear peak traffic periods during the day. The highest volumes occur between 7–8 AM and 4–5 PM, when activity exceeds 180% of the daily average. These peaks are consistent with standard commuting behavior, reflecting morning trips to work and evening returns home. A secondary peak is visible around 12–1 PM, likely associated with lunch-time movements toward restaurants and cafes. Overall, the temporal profile aligns with typical urban work schedules and daily routines.
+    </i></p>
+
+    <p class="calibri"><b><u>Spatial Distribution: Time-of-Day Analysis</u></b></p>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0;">
+    <div style="text-align: center;">
+        <img src="report/2/traffic_morning.png" style="max-width: 240px;"><br>
+        <small>Fig.9: Morning Traffic</small>
+    </div>
+    <div style="text-align: center;">
+        <img src="report/2/traffic_afternoon.png" style="max-width: 240px;"><br>
+        <small>Fig.10: Afternoon Traffic</small>
+    </div>
+    <div style="text-align: center;">
+        <img src="report/2/traffic_evening.png" style="max-width: 240px;"><br>
+        <small>Fig.11: Evening Traffic</small>
+    </div>
+    <div style="text-align: center;">
+        <img src="report/2/traffic_night.png" style="max-width: 240px;"><br>
+        <small>Fig.12: Night Traffic</small>
+    </div>
+    </div>
+
+    <p class="calibri"><i>
+    The traffic heatmaps in Figs.9–12 visualize visit counts to venues at different times of day. Each circle represents a venue location, with both its size and color encoding the number of visits recorded during the selected time window. Larger and darker circles indicate higher visit counts, while smaller and lighter circles correspond to lower engagement.
+    <br><br>
+    Across time periods, traffic intensity varies substantially, but several spatial hotspots remain consistent. Morning traffic exhibits the highest overall volume, as expected from commuting flows. Evening traffic is slightly lower, while nighttime activity unexpectedly exceeds evening levels, indicating strong late-night movement patterns. Persistently large and dark circles identify venues that attract sustained engagement throughout the day.
+    <br><br>
+    These recurring hotspots correspond primarily to hospitality venues, including pubs and restaurants distributed across the city. Their consistent prominence suggests that such venues act as major traffic attractors throughout the day, not only during traditional commuting peaks.
+    </i></p>
+
+    <div style="text-align: center; margin: 10px 0;">
+    <img src="report/2/map_restaurant_pubs.png" style="max-width: 400px;"><br>
+    <small>Fig.13: Restaurant and Pub Locations</small>
+    </div>
+
+    <p class="calibri"><i>
+    Fig.13 provides spatial context for interpreting the recurring hotspots observed in the traffic plots. In particular, two pubs located in the center-east area appear as persistent high-traffic nodes across multiple time windows, alongside additional restaurant and pub sites scattered throughout the city.
+    </i></p>
+
+    <p class="calibri"><b><u>Weekday vs. Weekend Patterns</u></b></p>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0;">
+    <div style="text-align: center;">
+        <img src="report/2/traffic_weekdays_morning.png" style="max-width: 350px;"><br>
+        <small>Fig.14: Weekday Morning Traffic</small>
+    </div>
+    <div style="text-align: center;">
+        <img src="report/2/traffic_weekends_morning.png" style="max-width: 350px;"><br>
+        <small>Fig.15: Weekend Morning Traffic</small>
+    </div>
+    </div>
+
+    <p class="calibri"><i>
+    Figs.14 and 15 use the same visual encoding as the previous traffic plots, enabling direct comparison between weekday and weekend patterns. On weekends, traffic concentrates more strongly around restaurants and pubs, with entertainment venues becoming the dominant traffic generators. This contrasts with weekdays, where traffic is more evenly distributed and reflects commuting and routine errands. The weekend clustering around hospitality venues reinforces their role as primary leisure destinations.
+    </i></p>
+
+    <p class="calibri"><b><u>Flow Map Analysis: Critical Bottlenecks</u></b></p>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0;">
+    <div style="text-align: center;">
+        <img src="report/2/flowmap_weekdays_6am.png" style="max-width: 270px;"><br>
+        <small>Fig.16: Weekday 6 AM Flow</small>
+    </div>
+    <div style="text-align: center;">
+        <img src="report/2/flowmap_weekends_6am.png" style="max-width: 270px;"><br>
+        <small>Fig.17: Weekend 6 AM Flow</small>
+    </div>
+    <div style="text-align: center;">
+        <img src="report/2/flowmap_weekends_pub_2pm.png" style="max-width: 270px;"><br>
+        <small>Fig.18: Weekend 2 PM Flow</small>
+    </div>
+    <div style="text-align: center;">
+        <img src="report/2/flowmap_weekends_1am.png" style="max-width: 270px;"><br>
+        <small>Fig.19: Weekend 1 AM Flow</small>
+    </div>
+    </div>
+
+    <p class="calibri"><i>
+    The flow maps in Figs.16–19 represent the most frequent travel movements between pairs of locations. Each flow line corresponds to an origin–destination pair, with thickness encoding the volume of observed movements. Blue segments indicate departures from origin locations, while orange segments indicate arrivals at destination locations.
+    <br><br>
+    Weekday flows, particularly in the morning (Fig.16), show no single dominant convergence point. Movements are broadly distributed across the city, consistent with commuting to multiple employment locations. In contrast, weekend flows show clear convergence toward a small set of entertainment destinations.
+    <br><br>
+    The weekend 2 PM flow map (Fig.18) highlights a critical bottleneck around a cluster of three pubs located in close proximity. Multiple high-volume flows intersect in this area, forming a clear convergence point. The spatial distribution shown in Fig.13 supports this interpretation by revealing the tight clustering of these venues.
+    <br><br>
+    Late-night weekend flows (Fig.19) show a complementary pattern, with movements reversing direction as participants return home. Flows disperse outward from entertainment areas toward residential neighborhoods. This bidirectional load, convergence in the evening and dispersal at night, increases sustained pressure on the road network around these pub clusters.
+    </i></p>
+
+    <p class="calibri"><b><u>Recommendations</u></b></p>
+
+    <p class="calibri"><i>
+    The identified bottlenecks, especially the three-pub cluster and the center-east pub concentration highlighted by Fig.13 and Fig.18, should be prioritized for infrastructure and mobility interventions. Potential measures include targeted traffic management during peak weekend windows, improved public transport connectivity to these hotspots, enhanced pedestrian infrastructure, and additional drop-off or parking capacity. Given the strong time dependence of congestion, time-based strategies are likely to be effective, such as weekend evening controls or temporary pedestrian-only zones near the most concentrated venue areas.
+    </i></p>
+
+
+
+
+<!------------------------------------------->
+<!---------------- QUESTION 3 ---------------->
+<!------------------------------------------->
+
 
 <p class="calibri"><b>3</b> - <span class="arial">Participants have given permission to have their daily routines captured. Choose two different participants with different routines and describe their daily patterns, with supporting evidence. Limit your response to 10 images and 500 words.</span></p>
 <p class="calibri"><i>
     We have choosen to analyze the daily routines of Participant 1 and Participant 6.
 </i></p>
+
+
+
+<!------------------------------------------->
+<!---------------- QUESTION 4 ---------------->
+<!------------------------------------------->
+
 
 <p class="calibri"><b>4</b> - <span class="arial">Over the span of the dataset, how do patterns change in the city change? Describe up to 10 significant changes, with supporting evidence. Limit your response to 10 images and 500 words.</span></p>
 <p class="calibri"><i>
