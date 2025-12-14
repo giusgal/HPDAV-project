@@ -139,8 +139,8 @@
 
 /* Timeline panel - fixed height */
 .chart-area.timeline-panel {
-  flex: 0 0 480px;
-  min-height: 480px;
+  flex: 0 0 700px;
+  min-height: 700px;
 }
 
 .chart-header {

@@ -13,6 +13,7 @@ const SeasonalComparison = () => {
   const [dayTypeFilter, setDayTypeFilter] = useState('all');
   const [timePeriodFilter, setTimePeriodFilter] = useState('all');
   const [excludeOutliers, setExcludeOutliers] = useState(false);
+  const [timelineGranularity, setTimelineGranularity] = useState('daily');
   const [activeCategories, setActiveCategories] = useState({
     restaurant: true, pub: true, home: true, work: true
   });
@@ -76,17 +77,24 @@ const SeasonalComparison = () => {
         apiParams.maxLon = coords.maxLon;
       }
       
-      const [daily, weekly] = await Promise.all([
+      // Load data for calendar (daily) and radar (weekly), plus timeline data
+      const [daily, weekly, timeline] = await Promise.all([
         fetchTemporalPatterns({ ...apiParams, granularity: 'daily' }),
-        fetchTemporalPatterns({ ...apiParams, granularity: 'weekly' })
+        fetchTemporalPatterns({ ...apiParams, granularity: 'weekly' }),
+        fetchTemporalPatterns({ ...apiParams, granularity: timelineGranularity })
       ]);
-      setData({ daily: daily.activity || [], weekly: weekly.activity || [], dateRange: weekly.date_range });
+      setData({ 
+        daily: daily.activity || [], 
+        weekly: weekly.activity || [], 
+        timeline: timeline.activity || [],
+        dateRange: weekly.date_range 
+      });
     } catch (e) {
       setError(e.message || 'Failed to load');
     } finally {
       setLoading(false);
     }
-  }, [excludeOutliers, enableGeoFilter]);
+  }, [excludeOutliers, enableGeoFilter, timelineGranularity]);
   
   // Load map data for geographic selection
   const loadMapData = useCallback(async () => {
@@ -279,18 +287,17 @@ const SeasonalComparison = () => {
   }, [data, activeView, dayTypeFilter, timePeriodFilter, activeCategories]);
 
   useEffect(() => {
-    if (!timelineChartRef.current || !data?.daily || activeView !== 'calendar') return;
+    if (!timelineChartRef.current || !data?.timeline || activeView !== 'calendar') return;
     if (!timelineChartInstance.current) {
       timelineChartInstance.current = new TimelineChart(timelineChartRef.current);
       timelineChartInstance.current.initialize();
     }
     timelineChartInstance.current.update({
-      dailyData: data.daily,
-      dayTypeFilter,
-      timePeriodFilter,
+      dailyData: data.timeline,
+      granularity: timelineGranularity,
       activeCategories
     });
-  }, [data, activeView, dayTypeFilter, timePeriodFilter, activeCategories]);
+  }, [data, activeView, timelineGranularity, activeCategories]);
 
   useEffect(() => () => {
     radarChartInstance.current?.destroy();
@@ -478,6 +485,26 @@ const SeasonalComparison = () => {
           <div className="chart-area timeline-panel">
             <div className="chart-header">
               <span>Activity Timeline</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{fontSize: '10px', opacity: 0.8}}>Granularity:</span>
+                <select 
+                  value={timelineGranularity} 
+                  onChange={e => setTimelineGranularity(e.target.value)}
+                  style={{
+                    padding: '2px 6px',
+                    fontSize: '10px',
+                    background: 'rgba(255,255,255,0.2)',
+                    color: 'white',
+                    border: '1px solid rgba(255,255,255,0.3)',
+                    borderRadius: '3px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </div>
             </div>
             <div className="chart-body">
               <div ref={timelineChartRef} style={{ width: '100%', height: '100%' }} />

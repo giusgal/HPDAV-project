@@ -585,7 +585,7 @@ export class TimelineChart {
       .style('opacity', 0);
   }
 
-  update({ dailyData, dayTypeFilter = 'all', timePeriodFilter = 'all', activeCategories = null }) {
+  update({ dailyData, granularity = 'daily', activeCategories = null }) {
     if (!dailyData || dailyData.length === 0) return;
 
     const container = this.container;
@@ -604,65 +604,50 @@ export class TimelineChart {
     const parseDate = d3.timeParse('%Y-%m-%d');
     const categories = activeCategories || { restaurant: true, pub: true, home: true, work: true };
 
-    // Calculate combined value based on active categories
-    const getCombinedCategoryValue = (d) => {
-      let total = 0;
-      if (categories.restaurant) total += d.restaurant_visits || 0;
-      if (categories.pub) total += d.pub_visits || 0;
-      if (categories.home) total += d.home_activity || 0;
-      if (categories.work) total += d.work_activity || 0;
-      return total;
+    // Category colors and labels
+    const categoryConfig = {
+      restaurant: { key: 'restaurant_visits', color: '#e74c3c', label: 'Restaurant' },
+      pub: { key: 'pub_visits', color: '#f39c12', label: 'Pub' },
+      home: { key: 'home_activity', color: '#3498db', label: 'Home' },
+      work: { key: 'work_activity', color: '#2ecc71', label: 'Work' }
     };
 
-    const getMetricValue = (d) => {
-      if (timePeriodFilter !== 'all') {
-        const timeMetricMap = {
-          morning: 'morning_activity',
-          afternoon: 'midday_activity',
-          evening: 'evening_activity',
-          night: 'night_activity'
-        };
-        return d[timeMetricMap[timePeriodFilter]] || 0;
-      }
-      return getCombinedCategoryValue(d);
-    };
-
-    // Filter and process data
+    // Process data
     let data = dailyData.map(d => {
       const date = parseDate(d.period);
       if (!date) return null;
       
-      const dayOfWeek = date.getDay();
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-      
-      if (dayTypeFilter === 'weekday' && isWeekend) return null;
-      if (dayTypeFilter === 'weekend' && !isWeekend) return null;
-      
       return {
         date,
-        value: getMetricValue(d),
-        isWeekend
+        restaurant_visits: d.restaurant_visits || 0,
+        pub_visits: d.pub_visits || 0,
+        home_activity: d.home_activity || 0,
+        work_activity: d.work_activity || 0
       };
     }).filter(d => d !== null);
 
     // Sort by date
     data.sort((a, b) => a.date - b.date);
 
+    // Get active categories for display
+    const activeKeys = Object.entries(categories)
+      .filter(([_, active]) => active)
+      .map(([cat, _]) => categoryConfig[cat]);
+
+    if (activeKeys.length === 0) return;
+
     // Scales
     const x = d3.scaleTime()
       .domain(d3.extent(data, d => d.date))
       .range([0, width]);
 
-    const y = d3.scaleLinear()
-      .domain([0, d3.max(data, d => d.value) * 1.1])
-      .range([height, 0]);
+    const maxY = d3.max(data, d => {
+      return d3.max(activeKeys.map(k => d[k.key]));
+    });
 
-    // Area generator
-    const area = d3.area()
-      .x(d => x(d.date))
-      .y0(height)
-      .y1(d => y(d.value))
-      .curve(d3.curveMonotoneX);
+    const y = d3.scaleLinear()
+      .domain([0, maxY * 1.1])
+      .range([height, 0]);
 
     // Line generator
     const line = d3.line()
@@ -670,34 +655,62 @@ export class TimelineChart {
       .y(d => y(d.value))
       .curve(d3.curveMonotoneX);
 
-    // Draw area
-    svg.append('path')
-      .datum(data)
-      .attr('fill', 'rgba(52, 152, 219, 0.2)')
-      .attr('d', area);
+    // Draw a line for each active category
+    activeKeys.forEach(cat => {
+      const lineData = data.map(d => ({ date: d.date, value: d[cat.key] }));
+      
+      // Draw line
+      svg.append('path')
+        .datum(lineData)
+        .attr('fill', 'none')
+        .attr('stroke', cat.color)
+        .attr('stroke-width', 2)
+        .attr('d', line);
+    });
 
-    // Draw line
-    svg.append('path')
-      .datum(data)
-      .attr('fill', 'none')
-      .attr('stroke', '#3498db')
-      .attr('stroke-width', 1.5)
-      .attr('d', line);
-
-    // X axis
+    // X axis with appropriate date format based on granularity
+    const dateFormat = granularity === 'daily' ? '%b %d' : granularity === 'weekly' ? '%b %d' : '%b %Y';
+    const tickCount = granularity === 'daily' ? (width > 500 ? 15 : 8) : granularity === 'weekly' ? 10 : 12;
+    
     svg.append('g')
       .attr('transform', `translate(0,${height})`)
-      .call(d3.axisBottom(x).ticks(width > 500 ? 10 : 5).tickFormat(d3.timeFormat('%b %y')))
+      .call(d3.axisBottom(x).ticks(tickCount).tickFormat(d3.timeFormat(dateFormat)))
       .selectAll('text')
       .attr('font-size', '9px')
-      .attr('fill', '#666');
+      .attr('fill', '#666')
+      .attr('transform', granularity === 'daily' ? 'rotate(-45)' : 'rotate(0)')
+      .style('text-anchor', granularity === 'daily' ? 'end' : 'middle');
 
     // Y axis
     svg.append('g')
-      .call(d3.axisLeft(y).ticks(4).tickFormat(d3.format('.2s')))
+      .call(d3.axisLeft(y).ticks(5).tickFormat(d3.format('.2s')))
       .selectAll('text')
       .attr('font-size', '9px')
       .attr('fill', '#666');
+
+    // Legend
+    const legend = svg.append('g')
+      .attr('transform', `translate(${width - 100}, 5)`);
+
+    activeKeys.forEach((cat, i) => {
+      const g = legend.append('g')
+        .attr('transform', `translate(0, ${i * 18})`);
+      
+      g.append('line')
+        .attr('x1', 0)
+        .attr('x2', 16)
+        .attr('y1', 6)
+        .attr('y2', 6)
+        .attr('stroke', cat.color)
+        .attr('stroke-width', 2);
+      
+      g.append('text')
+        .attr('x', 22)
+        .attr('y', 10)
+        .attr('font-size', '10px')
+        .attr('fill', '#666')
+        .text(cat.label);
+    });
 
     // Add hover interaction
     const tooltip = this.tooltip;
@@ -705,19 +718,24 @@ export class TimelineChart {
 
     const focus = svg.append('g').style('display', 'none');
     
-    focus.append('circle')
-      .attr('r', 4)
-      .attr('fill', '#3498db')
-      .attr('stroke', 'white')
-      .attr('stroke-width', 2);
-
+    // Vertical line
     focus.append('line')
       .attr('class', 'focus-line')
       .attr('y1', 0)
       .attr('y2', height)
-      .attr('stroke', '#3498db')
+      .attr('stroke', '#999')
       .attr('stroke-dasharray', '3,3')
       .attr('stroke-width', 1);
+
+    // Dots for each category
+    activeKeys.forEach(cat => {
+      focus.append('circle')
+        .attr('class', `focus-dot-${cat.key}`)
+        .attr('r', 4)
+        .attr('fill', cat.color)
+        .attr('stroke', 'white')
+        .attr('stroke-width', 2);
+    });
 
     svg.append('rect')
       .attr('width', width)
@@ -737,15 +755,26 @@ export class TimelineChart {
         if (!d0 || !d1) return;
         const d = x0 - d0.date > d1.date - x0 ? d1 : d0;
         
-        focus.attr('transform', `translate(${x(d.date)},${y(d.value)})`);
-        focus.select('.focus-line').attr('y1', -y(d.value)).attr('y2', height - y(d.value));
+        // Move vertical line
+        focus.select('.focus-line')
+          .attr('transform', `translate(${x(d.date)}, 0)`);
+        
+        // Move dots
+        activeKeys.forEach(cat => {
+          focus.select(`.focus-dot-${cat.key}`)
+            .attr('transform', `translate(${x(d.date)}, ${y(d[cat.key])})`);
+        });
+        
+        // Build tooltip content with appropriate date format
+        const tooltipDateFormat = granularity === 'monthly' ? '%B %Y' : '%b %d, %Y';
+        let tooltipContent = `<strong>${d3.timeFormat(tooltipDateFormat)(d.date)}</strong><br/>`;
+        activeKeys.forEach(cat => {
+          tooltipContent += `<span style="color:${cat.color}">●</span> ${cat.label}: ${d3.format(',')(d[cat.key])}<br/>`;
+        });
         
         tooltip
           .style('opacity', 1)
-          .html(`
-            <strong>${d3.timeFormat('%b %d, %Y')(d.date)}</strong><br/>
-            Value: ${d3.format(',')(d.value)}
-          `)
+          .html(tooltipContent)
           .style('left', (event.pageX + 10) + 'px')
           .style('top', (event.pageY - 30) + 'px');
       });
