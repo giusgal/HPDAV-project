@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
-import { BuildingsMap, AreaCharacteristics, TrafficPatterns, DailyRoutines, TemporalPatterns, FlowMap, ThemeRiver, ParallelCoordinates } from './components';
+import { BuildingsMap, AreaCharacteristics, TrafficPatterns, DailyRoutines, TemporalPatterns, FlowMap, ThemeRiver, ParallelCoordinates, SeasonalComparison } from './components';
 import './App.css';
 
 const VIEWS = {
@@ -12,6 +12,7 @@ const VIEWS = {
   'temporal-patterns': { id: 'temporal-patterns', label: 'Temporal Patterns', component: TemporalPatterns },
   'theme-river': { id: 'theme-river', label: 'Theme River', component: ThemeRiver },
   'parallel-coordinates': { id: 'parallel-coordinates', label: 'Parallel Coordinates', component: ParallelCoordinates },
+  'seasonal-comparison': { id: 'seasonal-comparison', label: 'Seasonal Comparison', component: SeasonalComparison },
 };
 
 function App() {
