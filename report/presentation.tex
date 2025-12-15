@@ -12,27 +12,26 @@
 Matteo Arrigo \and
 Giuseppe Galardi \and
 Nicola Noventa \\[0.5em]
-University of Luxembourg
 }
 \date{}
 
 \begin{document}
 
 %------------------------------------------------
+
+
 \begin{frame}
   \titlepage
 \end{frame}
 
+
 %------------------------------------------------
-\begin{frame}{Tools Used}
-\begin{itemize}
-    \item React (Frontend)
-    \item D3.js (Frontend)
-    \item Flask (Backend)
-    \item PostgreSQL (Database)
-    \item Docker
-\end{itemize}
+
+\begin{frame}{Infrastructure}
+  \includegraphics[width=1.0\linewidth]{presentation/diagram.jpeg}
 \end{frame}
+
+%------------------------------------------------
 
 \begin{frame}{Buildings Map}
 
@@ -150,8 +149,10 @@ University of Luxembourg
         \includegraphics[height=0.4\textheight]{report/1/population.png}\\
         \footnotesize Fig.: Population Density
 
-        \includegraphics[height=0.4\textheight]{report/1/apartments.png}\\
-        \footnotesize Fig.: Apartment Locations
+        \vspace{1em}
+        \begin{itemize}\footnotesize
+            \item Correlation between high population density areas and apartment building concentration.
+        \end{itemize}
     \end{column}
 
     %---------------- RIGHT COLUMN ----------------
@@ -164,7 +165,6 @@ University of Luxembourg
         \vspace{1em}
 
         \begin{itemize}\footnotesize
-            \item Correlation between high population density areas and apartment building concentration.
             \item Larger homes correspond to lower density, while smaller homes cluster in denser areas.
         \end{itemize}
     \end{column}
@@ -202,12 +202,12 @@ University of Luxembourg
 
     %---------------- RIGHT COLUMN ----------------
     \begin{column}{0.5\textwidth}
-        \vspace{3em}
+        \vspace{4em}
         \begin{itemize}
             \item Displays aggregated visit counts per location using bubble size and color intensity
             \item Directly identifies the busiest areas through visual emphasis
             \item Enables filtering by time period and day type for pattern analysis
-            \item Provides quantitative metrics (total visits, busiest location)
+            % \item Provides quantitative metrics (total visits, busiest location)
         \end{itemize}
     \end{column}
 \end{columns}
@@ -239,7 +239,7 @@ University of Luxembourg
         \vspace{1em}
         \begin{itemize}
             \item Visualizes movement flows between locations over time
-            \item Reveals primary traffic routes and connectivity patterns
+            \item Reveals primary connectivity patterns
             \item Shows temporal dynamics with playback controls
             \item Identifies potential bottlenecks through edge density
 
@@ -426,33 +426,23 @@ University of Luxembourg
 % CONCLUSIONS
 %================================================
 
-\begin{frame}{Conclusions: Visualization Strengths}
+\begin{frame}{Conclusions: Strengths}
 \begin{itemize}
-    \item \textbf{Comprehensive coverage:} Suite of visualizations addresses all aspects of urban mobility and activity patterns
-    \item \textbf{Interactive exploration:} Time filtering, geographic selection, and dynamic controls enable deep analysis
-    \item \textbf{Multi-scale analysis:} From individual routines to city-wide patterns across temporal and spatial dimensions
-    \item \textbf{Complementary views:} Each visualization provides unique insights while supporting findings from others
+    \item The most effective visualizations are those addressing \textbf{bottlenecks} (Question 2). These charts clearly highlight \textbf{actual bottlenecks} within the city, and the applied \textbf{filters} make it possible to observe how they \textbf{evolve throughout the day}.
+    \item The \textbf{comparison between two participants} and their routes (Question 3) is also a strong point. As discussed in the report, this visualization enables an \textbf{effective comparison} between participants with \textbf{different profiles and daily routines}.
+    \item The \textbf{heatmap} provides a \textbf{clear and intuitive} way to highlight \textbf{areas of interest} across the city.
 \end{itemize}
 \end{frame}
 
-\begin{frame}{Conclusions: Limitations and Key Findings}
-\textbf{Limitations:}
+\begin{frame}{Conclusions: Limitations}
 \begin{itemize}
-    \item Limited to volunteer data - may not fully represent entire population
-    \item Temporal gaps in data collection could affect seasonal comparisons
-    \item Spatial aggregation may obscure micro-level patterns
-\end{itemize}
-
-\vspace{1em}
-
-\textbf{Key Findings:}
-\begin{itemize}
-    \item Clear distinction between residential, commercial, and mixed-use areas
-    \item Traffic patterns show strong temporal variations (weekday vs. weekend)
-    \item Individual routines reveal diverse lifestyle patterns
-    \item Seasonal changes indicate weather-influenced behavior shifts
+    \item We experimented with several visualizations to identify \textbf{seasonal or monthly patterns}. For example, we expected a \textbf{decrease in work-related activities} during the \textbf{summer period}, but our analysis did not reveal such trends.
+    \item To improve \textbf{efficiency}, some visualizations rely on \textbf{aggregated data tables}. While beneficial for performance, this choice may \textbf{limit the discovery of fine-grained temporal patterns}.
+    \item Due to \textbf{time constraints}, we were not able to perform \textbf{advanced statistical analyses} on the data (e.g., \textbf{clustering}, \textbf{dimensionality reduction}).
 \end{itemize}
 \end{frame}
+
+
 
 %================================================
 % WORK DIVISION
@@ -468,7 +458,7 @@ University of Luxembourg
         
         \begin{itemize}\small
             \item Fronted
-            \item Question 2, 3
+            \item Question 1, 2
             \item Project Presentation
             \item Project Report
         \end{itemize}
@@ -481,10 +471,9 @@ University of Luxembourg
         \vspace{1em}
         
         \begin{itemize}\small
+            \item Backend
             \item Infrastructure and Setup
-            \item Backend API
             \item Video Presentation
-            \item Question 1
         \end{itemize}
     \end{column}
     
