@@ -1,0 +1,517 @@
+\documentclass{beamer}
+
+\usetheme{Madrid}
+\usecolortheme{default}
+
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{multicol}
+
+\title{VAST Challenge 2022 \\ Challenge 2}
+\author[Arrigo M., Galardi G., Noventa N.]{
+Matteo Arrigo \and
+Giuseppe Galardi \and
+Nicola Noventa \\[0.5em]
+University of Luxembourg
+}
+\date{}
+
+\begin{document}
+
+%------------------------------------------------
+\begin{frame}
+  \titlepage
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Tools Used}
+\begin{itemize}
+    \item React (Frontend)
+    \item D3.js (Frontend)
+    \item Flask (Backend)
+    \item PostgreSQL (Database)
+    \item Docker
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Buildings Map}
+
+\vspace{-1em}
+\begin{columns}[T]
+    %---------------- LEFT COLUMN ----------------
+    \begin{column}{0.75\textwidth}
+        \centering
+        \vspace{-1em}
+        \begin{figure}
+            \centering
+            \includegraphics[width=0.85\linewidth]{presentation/buildings_map.png}
+            % \caption{Interactive map showing all buildings in Engagement city categorized by venue type}
+            \label{fig:buildings_map}
+        \end{figure}
+    \end{column}
+
+    %---------------- RIGHT COLUMN ----------------
+    \begin{column}{0.3\textwidth}
+        \vspace{3em}
+        \raggedright
+        \textbf{Purpose:} Provides a spatial baseline for understanding the city's structure and serves as reference context for all subsequent visualizations.
+        
+    \end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Parallel Coordinates Plot}
+
+%---------------- TOP ROW ----------------
+\begin{columns}[T]
+    \begin{column}{0.5\textwidth}
+        \vspace{2em}
+        \centering
+        \includegraphics[width=\linewidth]{presentation/pcp.png}
+
+        \textbf{Purpose:} Baseline for multidimensional analysis across participant activity patterns
+    \end{column}
+
+    % RIGHT: CLASS EXPLANATION
+    \begin{column}{0.5\textwidth}
+        \textbf{Five dimensions}
+        \begin{itemize}
+            \item \textbf{Work}: work-related activities, including workplace visits and work–home commuting
+            \item \textbf{Home}: time spent at home, based on apartment venue visits
+            \item \textbf{Social}: social and recreational activities, including pub visits and recreation-related travel
+            \item \textbf{Food}: food-related activities, including restaurant visits and eating-purpose travel
+            \item \textbf{Travel}: total mobility, aggregating all recorded travel activities
+        \end{itemize}
+    \end{column}
+\end{columns}
+
+\vspace{1.5em}
+
+\end{frame}
+
+
+
+%================================================
+% QUESTION 1
+%================================================
+
+\begin{frame}
+\begin{center}
+    {\Large \textbf{Question 1}}
+    
+    \vspace{1.5em}
+    
+    {\large Assuming the volunteers are representative of the city's population, \textbf{characterize the distinct areas} of the city that you identify.}
+\end{center}
+\end{frame}
+
+
+
+\begin{frame}{Area Characteristics Visualization}
+
+% \vspace{-1em}
+\begin{columns}[T]
+    %---------------- LEFT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \centering
+        \includegraphics[width=1.1\linewidth]{presentation/area_characteristics.png}
+        % \caption{Heatmap displaying population density and activity patterns across different areas}
+        \label{fig:area_characteristics}
+    \end{column}
+
+    %---------------- RIGHT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        % \textbf{Why useful for Q1:}
+        \vspace{3em}
+        \begin{itemize}
+            \item Reveals spatial distribution patterns of population and activity
+            % \item Identifies distinct areas with different characteristics (residential, commercial, recreational)
+            \item Shows intensity variations through color-coded heatmap visualization
+            \item Enables comparison of different metrics (population, activity) across grid cells
+        \end{itemize}
+    \end{column}
+\end{columns}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.6\linewidth]{presentation/area_characteristics.png}
+    \caption{Heatmap displaying population density and activity patterns across different areas}
+    \label{fig:area_characteristics}
+\end{figure}
+
+\end{frame}
+
+\begin{frame}{Example: Population and Housing Patterns}
+\vspace{-1em}
+\begin{columns}[T]
+    %---------------- LEFT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \centering
+        \includegraphics[height=0.4\textheight]{report/1/population.png}\\
+        \footnotesize Fig.: Population Density
+
+        \includegraphics[height=0.4\textheight]{report/1/apartments.png}\\
+        \footnotesize Fig.: Apartment Locations
+    \end{column}
+
+    %---------------- RIGHT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+    
+        \centering
+        \includegraphics[height=0.4\textheight]{report/1/house_size.png}\\
+        \footnotesize Fig.: Average Household Size
+
+        \vspace{1em}
+
+        \begin{itemize}\footnotesize
+            \item Correlation between high population density areas and apartment building concentration.
+            \item Larger homes correspond to lower density, while smaller homes cluster in denser areas.
+        \end{itemize}
+    \end{column}
+\end{columns}
+\end{frame}
+
+
+%================================================
+% QUESTION 2
+%================================================
+
+\begin{frame}
+\begin{center}
+    {\Large \textbf{Question 2}}
+    
+    \vspace{1.5em}
+    
+    {\large Where are the \textbf{busiest areas} in Engagement?}
+    
+    \vspace{0.5em}
+    
+    {\large Are there \textbf{traffic bottlenecks} that should be addressed?}
+\end{center}
+\end{frame}
+
+\begin{frame}{Traffic Patterns Visualization}
+
+\begin{columns}[T]
+    %---------------- LEFT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \centering
+        \includegraphics[width=1.1\linewidth]{presentation/traffic_patterns.png}
+        \label{fig:traffic_patterns}
+    \end{column}
+
+    %---------------- RIGHT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \vspace{3em}
+        \begin{itemize}
+            \item Displays aggregated visit counts per location using bubble size and color intensity
+            \item Directly identifies the busiest areas through visual emphasis
+            \item Enables filtering by time period and day type for pattern analysis
+            \item Provides quantitative metrics (total visits, busiest location)
+        \end{itemize}
+    \end{column}
+\end{columns}
+
+\end{frame}
+
+\begin{frame}{Example: Weekday vs Weekend Traffic}
+    \begin{multicols}{2}
+    \includegraphics[width=0.9\linewidth]{report/2/traffic_weekdays_morning.png}
+    \includegraphics[width=0.9\linewidth]{report/2/traffic_weekends_morning.png}
+    
+    \end{multicols}
+    Weekends feature traffic clustering around restaurants and pubs, while weekdays display a more evenly distributed, commute-driven pattern.
+\end{frame}
+
+
+\begin{frame}{Traffic Density Visualization}
+
+\begin{columns}[T]
+    %---------------- LEFT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \centering
+        \includegraphics[width=1.1\linewidth]{presentation/traffic_density.png}
+        \label{fig:traffic_density}
+    \end{column}
+
+    %---------------- RIGHT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \vspace{1em}
+        \begin{itemize}
+            \item Visualizes movement flows between locations over time
+            \item Reveals primary traffic routes and connectivity patterns
+            \item Shows temporal dynamics with playback controls
+            \item Identifies potential bottlenecks through edge density
+
+        \end{itemize}
+    \end{column}
+\end{columns}
+
+\end{frame}
+
+\begin{frame}{Esampe: Afternoon Convergence}
+\begin{columns}
+    \column{0.5\textwidth}
+    \centering
+    \includegraphics[width=0.85\linewidth]{report/2/flow_density_weekends_2pm.png}\\
+    \footnotesize Fig.: Weekend afternoon flows (strong clustering)
+
+    \column{0.5\textwidth}
+    \centering
+    \includegraphics[width=0.85\linewidth]{report/2/flow_density_all_1pm.png}\\
+    \footnotesize Fig.: All-days 1 PM flows (persistent attractors)
+\end{columns}
+\end{frame}
+
+
+%================================================
+% QUESTION 3
+%================================================
+
+\begin{frame}
+\begin{center}
+    {\Large \textbf{Question 3}}
+    
+    \vspace{1.5em}
+    
+    {\large Participants have given permission to have their daily routines captured.}
+    
+    \vspace{0.5em}
+    
+    {\large Choose \textbf{two different participants} with different routines and describe their \textbf{daily patterns}, with supporting evidence.}
+\end{center}
+\end{frame}
+
+\begin{frame}{Daily Routines: Timeline Visualization}
+
+%---------------- TOP: PLOT ----------------
+\centering
+\includegraphics[width=0.70\linewidth]{presentation/daily_routines_1.png}
+
+% \vspace{1em}
+
+%---------------- BOTTOM: TEXT IN TWO COLUMNS ----------------
+\begin{columns}[T]
+    \begin{column}{0.5\textwidth}
+        \begin{itemize}
+            \item Displays hour-by-hour activity breakdown for each participant
+            \item Color-coded activity categories make routine patterns immediately visible
+        \end{itemize}
+    \end{column}
+
+    \begin{column}{0.5\textwidth}
+        \begin{itemize}
+            \item Supports direct comparison of daily routines between two participants
+            \item Time-based filtering enables analysis of specific periods or day types
+        \end{itemize}
+    \end{column}
+\end{columns}
+
+\end{frame}
+
+
+\begin{frame}{Daily Routines: Travel Routes Visualization}
+
+\begin{columns}[T]
+    %---------------- LEFT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \centering
+        \includegraphics[width=1.1\linewidth]{presentation/daily_routines_2.png}
+        \label{fig:daily_routines_routes}
+    \end{column}
+
+    %---------------- RIGHT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \vspace{2em}
+        \begin{itemize}
+            \item Maps actual geographic movements and key locations (home, work)
+            \item Shows spatial patterns and travel distances
+            \item Reveals routine differences through distinct route networks
+            \item Activity breakdown summary provides quantitative support
+        \end{itemize}
+    \end{column}
+\end{columns}
+\end{frame}
+
+
+%================================================
+% QUESTION 4
+%================================================
+
+\begin{frame}
+\begin{center}
+    {\Large \textbf{Question 4}}
+    
+    \vspace{1.5em}
+    
+    {\large Over the span of the dataset, how do \textbf{patterns change} in the city?}
+\end{center}
+\end{frame}
+
+\begin{frame}{Venue Visits Over Time}
+
+%---------------- TOP: PLOT ----------------
+\centering
+\includegraphics[width=0.7\linewidth]{presentation/venue_visits.png}
+
+% \vspace{1em}
+
+%---------------- BOTTOM: TEXT IN TWO COLUMNS ----------------
+\begin{columns}[T]
+    \begin{column}{0.5\textwidth}
+        \begin{itemize}
+            \item Tracks visit patterns for specific venues across the full dataset timespan
+            \item Multiple time granularities (daily, weekly, monthly) reveal trends at different scales
+        \end{itemize}
+    \end{column}
+
+    \begin{column}{0.5\textwidth}
+        \begin{itemize}
+            \item Displays both total visits and unique visitors to distinguish recurring from new traffic
+            \item Summary statistics highlight peak periods and changes in venue popularity over time
+        \end{itemize}
+    \end{column}
+\end{columns}
+
+\end{frame}
+
+
+\begin{frame}{Temporal Analysis: Activity Calendar}
+
+\begin{columns}[T]
+    %---------------- LEFT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \centering
+        \includegraphics[width=1.1\linewidth]{presentation/temporal_analysis_calendar.png}
+        \label{fig:temporal_calendar}
+    \end{column}
+
+    %---------------- RIGHT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \vspace{1em}
+        \begin{itemize}
+            \item Calendar heatmap shows activity intensity for every day in the dataset
+            \item Geographic filtering enables location-specific temporal analysis
+            \item Timeline chart reveals long-term trends and seasonal variations
+            \item Activity type filtering identifies how different venue categories change over time
+        \end{itemize}
+    \end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Seasonal Comparison: Radar Chart}
+
+\begin{columns}[T]
+    %---------------- LEFT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \centering
+        \includegraphics[width=1.1\linewidth]{presentation/temporal_analysis_diamond.png}
+        \label{fig:seasonal_radar}
+    \end{column}
+
+    %---------------- RIGHT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \vspace{3em}
+        \begin{itemize}
+            % \item Compares activity patterns across four seasons (Spring, Summer, Fall, Winter)
+            \item Multi-dimensional view shows how different activity types change seasonally
+            \item Overlapping polygons enable direct visual comparison between seasons
+            \item Reveals seasonal preferences and behavioral shifts in the city
+        \end{itemize}
+    \end{column}
+\end{columns}
+\end{frame}
+
+%================================================
+% CONCLUSIONS
+%================================================
+
+\begin{frame}{Conclusions: Visualization Strengths}
+\begin{itemize}
+    \item \textbf{Comprehensive coverage:} Suite of visualizations addresses all aspects of urban mobility and activity patterns
+    \item \textbf{Interactive exploration:} Time filtering, geographic selection, and dynamic controls enable deep analysis
+    \item \textbf{Multi-scale analysis:} From individual routines to city-wide patterns across temporal and spatial dimensions
+    \item \textbf{Complementary views:} Each visualization provides unique insights while supporting findings from others
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Conclusions: Limitations and Key Findings}
+\textbf{Limitations:}
+\begin{itemize}
+    \item Limited to volunteer data - may not fully represent entire population
+    \item Temporal gaps in data collection could affect seasonal comparisons
+    \item Spatial aggregation may obscure micro-level patterns
+\end{itemize}
+
+\vspace{1em}
+
+\textbf{Key Findings:}
+\begin{itemize}
+    \item Clear distinction between residential, commercial, and mixed-use areas
+    \item Traffic patterns show strong temporal variations (weekday vs. weekend)
+    \item Individual routines reveal diverse lifestyle patterns
+    \item Seasonal changes indicate weather-influenced behavior shifts
+\end{itemize}
+\end{frame}
+
+%================================================
+% WORK DIVISION
+%================================================
+
+\begin{frame}{Work Division}
+\begin{columns}[T]
+    \begin{column}{0.33\textwidth}
+        \centering
+        \textbf{Matteo Arrigo}
+        
+        \vspace{1em}
+        
+        \begin{itemize}\small
+            \item Fronted
+            \item Question 2, 3
+            \item Project Presentation
+            \item Project Report
+        \end{itemize}
+    \end{column}
+    
+    \begin{column}{0.33\textwidth}
+        \centering
+        \textbf{Giuseppe Galardi}
+        
+        \vspace{1em}
+        
+        \begin{itemize}\small
+            \item Infrastructure and Setup
+            \item Backend API
+            \item Video Presentation
+            \item Question 1
+        \end{itemize}
+    \end{column}
+    
+    \begin{column}{0.33\textwidth}
+        \centering
+        \textbf{Nicola Noventa}
+        
+        \vspace{1em}
+        
+        \begin{itemize}\small
+            \item Fronted
+            \item Question 3, 4
+            \item Project Presentation
+            \item Project Report
+        \end{itemize}
+    \end{column}
+\end{columns}
+
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}
+    \centering
+    \Huge \textbf{Thank You}
+
+    \vspace{1cm}
+    \large Questions?
+\end{frame}
+
+\end{document}
