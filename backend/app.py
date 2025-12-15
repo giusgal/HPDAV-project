@@ -2580,6 +2580,196 @@ def get_parallel_coordinates():
         return jsonify({"error": str(e)}), 500
 
 
+# Cache for venue list
+_venue_list_cache = {}
+
+@app.route('/api/venue-list')
+def venue_list():
+    """
+    Get list of venues (restaurants or pubs) for dropdown selection.
+    
+    Parameters:
+    - venue_type: 'Restaurant' or 'Pub' (default: 'Restaurant')
+    
+    Returns list of venues sorted by total visits (descending).
+    """
+    global _venue_list_cache
+    
+    venue_type = request.args.get('venue_type', 'Restaurant', type=str)
+    
+    if venue_type not in ['Restaurant', 'Pub']:
+        return jsonify({"error": "venue_type must be 'Restaurant' or 'Pub'"}), 400
+    
+    if venue_type in _venue_list_cache:
+        logger.info(f"Using cached venue list for {venue_type}")
+        return jsonify(_venue_list_cache[venue_type])
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    try:
+        t0 = time.time()
+        
+        if venue_type == 'Restaurant':
+            table = 'restaurants'
+            id_col = 'restaurantid'
+        else:
+            table = 'pubs'
+            id_col = 'pubid'
+        
+        # Get venues with their total visit counts
+        cur.execute(f"""
+            SELECT 
+                v.{id_col} as id,
+                v.{id_col}::text as name,
+                v.location[0] as x,
+                v.location[1] as y,
+                COALESCE(vc.total_visits, 0) as total_visits
+            FROM {table} v
+            LEFT JOIN (
+                SELECT venueid, COUNT(*) as total_visits
+                FROM checkinjournal
+                WHERE venuetype = %s
+                GROUP BY venueid
+            ) vc ON v.{id_col} = vc.venueid
+            ORDER BY total_visits DESC
+        """, (venue_type,))
+        
+        venues = [dict(row) for row in cur.fetchall()]
+        logger.info(f"Venue list query time = {time.time() - t0:.3f}s, count = {len(venues)}")
+        
+        result = {
+            'venue_type': venue_type,
+            'venues': venues
+        }
+        
+        _venue_list_cache[venue_type] = result
+        
+        cur.close()
+        return_db_connection(conn)
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error("Error in /api/venue-list", exc_info=e)
+        try:
+            cur.close()
+            return_db_connection(conn)
+        except:
+            pass
+        return jsonify({"error": str(e)}), 500
+
+
+# Cache for venue visits
+_venue_visits_cache = {}
+
+@app.route('/api/venue-visits')
+def venue_visits():
+    """
+    Get visit counts over time for a specific venue.
+    
+    Parameters:
+    - venue_type: 'Restaurant' or 'Pub' (required)
+    - venue_id: ID of the venue (required)
+    - granularity: 'daily', 'weekly', 'monthly' (default: 'weekly')
+    
+    Returns time series of visit counts.
+    """
+    global _venue_visits_cache
+    
+    venue_type = request.args.get('venue_type', type=str)
+    venue_id = request.args.get('venue_id', type=int)
+    granularity = request.args.get('granularity', 'weekly', type=str)
+    
+    if not venue_type or venue_type not in ['Restaurant', 'Pub']:
+        return jsonify({"error": "venue_type must be 'Restaurant' or 'Pub'"}), 400
+    
+    if venue_id is None:
+        return jsonify({"error": "venue_id is required"}), 400
+    
+    cache_key = (venue_type, venue_id, granularity)
+    if cache_key in _venue_visits_cache:
+        logger.info(f"Using cached venue visits for key={cache_key}")
+        return jsonify(_venue_visits_cache[cache_key])
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    
+    try:
+        t0 = time.time()
+        
+        # Determine date truncation based on granularity
+        if granularity == 'daily':
+            date_trunc = "DATE_TRUNC('day', timestamp)"
+        elif granularity == 'monthly':
+            date_trunc = "DATE_TRUNC('month', timestamp)"
+        else:  # weekly
+            date_trunc = "DATE_TRUNC('week', timestamp)"
+        
+        # Get visits over time
+        cur.execute(f"""
+            SELECT 
+                {date_trunc}::date as period,
+                COUNT(*) as visits,
+                COUNT(DISTINCT participantid) as unique_visitors
+            FROM checkinjournal
+            WHERE venuetype = %s AND venueid = %s
+            GROUP BY {date_trunc}
+            ORDER BY period
+        """, (venue_type, venue_id))
+        
+        visits = [dict(row) for row in cur.fetchall()]
+        
+        # Convert dates to strings
+        for v in visits:
+            v['period'] = str(v['period'])
+        
+        logger.info(f"Venue visits query time = {time.time() - t0:.3f}s, periods = {len(visits)}")
+        
+        # Calculate statistics
+        total_visits = sum(v['visits'] for v in visits)
+        unique_visitors = set()
+        
+        # Get unique visitors count
+        cur.execute("""
+            SELECT COUNT(DISTINCT participantid) as unique_visitors
+            FROM checkinjournal
+            WHERE venuetype = %s AND venueid = %s
+        """, (venue_type, venue_id))
+        unique_count = cur.fetchone()['unique_visitors']
+        
+        # Find peak period
+        peak_period = max(visits, key=lambda x: x['visits'])['period'] if visits else None
+        avg_visits = total_visits / len(visits) if visits else 0
+        
+        result = {
+            'venue_type': venue_type,
+            'venue_id': venue_id,
+            'granularity': granularity,
+            'visits': visits,
+            'total_visits': total_visits,
+            'unique_visitors': unique_count,
+            'avg_visits_per_period': avg_visits,
+            'peak_period': peak_period
+        }
+        
+        _venue_visits_cache[cache_key] = result
+        
+        cur.close()
+        return_db_connection(conn)
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error("Error in /api/venue-visits", exc_info=e)
+        try:
+            cur.close()
+            return_db_connection(conn)
+        except:
+            pass
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == '__main__':
     logger.info("Starting Flask server on 0.0.0.0:5000 ...")
     app.run(host='0.0.0.0', port=5000)

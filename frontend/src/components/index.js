@@ -8,4 +8,5 @@ export { default as TrafficDensity } from './TrafficDensity/TrafficDensity';
 export { default as ThemeRiver } from './ThemeRiver/ThemeRiver';
 export { default as ParallelCoordinates } from './ParallelCoordinates/ParallelCoordinates';
 export { default as SeasonalComparison } from './SeasonalComparison/SeasonalComparison';
+export { default as VenueVisits } from './VenueVisits/VenueVisits';
 

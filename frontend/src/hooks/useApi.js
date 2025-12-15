@@ -150,6 +150,42 @@ export const fetchParallelCoordinates = async (params = {}) => {
 };
 
 /**
+ * Fetch list of venues (restaurants or pubs) for selection.
+ * @param {Object} params - Query parameters
+ * @param {string} params.venueType - Type of venue: 'Restaurant' or 'Pub' (default: 'Restaurant')
+ * @returns {Promise<Object>} Venue list data
+ */
+export const fetchVenueList = async (params = {}) => {
+  const { venueType = 'Restaurant' } = params;
+  const response = await apiClient.get('/api/venue-list', {
+    params: {
+      venue_type: venueType
+    }
+  });
+  return response.data;
+};
+
+/**
+ * Fetch visit counts over time for a specific venue.
+ * @param {Object} params - Query parameters
+ * @param {string} params.venueType - Type of venue: 'Restaurant' or 'Pub' (required)
+ * @param {number} params.venueId - ID of the venue (required)
+ * @param {string} params.granularity - Time granularity: 'daily', 'weekly', 'monthly' (default: 'weekly')
+ * @returns {Promise<Object>} Venue visits time series data
+ */
+export const fetchVenueVisits = async (params = {}) => {
+  const { venueType, venueId, granularity = 'weekly' } = params;
+  const response = await apiClient.get('/api/venue-visits', {
+    params: {
+      venue_type: venueType,
+      venue_id: venueId,
+      granularity
+    }
+  });
+  return response.data;
+};
+
+/**
  * Fetch map bounds (coordinate extent).
  * @returns {Promise<Object>} Bounds data { min_x, max_x, min_y, max_y }
  */
