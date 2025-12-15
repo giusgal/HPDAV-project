@@ -37,6 +37,11 @@ class TrafficDensityChart {
    * Initialize the SVG structure.
    */
   initialize() {
+    // Prevent double initialization
+    if (this.initialized) {
+      return;
+    }
+    
     this.svg = d3.select(this.container);
     this.svg.selectAll('*').remove();
 
@@ -58,6 +63,8 @@ class TrafficDensityChart {
     this.buildingsGroup = this.g.append('g').attr('class', 'buildings-layer');
     this.linesGroup = this.g.append('g').attr('class', 'lines-layer');
     this.axesGroup = this.g.append('g').attr('class', 'axes-layer');
+    
+    this.initialized = true;
   }
 
   /**
@@ -110,7 +117,7 @@ class TrafficDensityChart {
       .range([innerHeight, 0]);
 
     // Render layers
-    this.renderBaseMap(innerWidth, innerHeight);
+    // Base map removed - not needed
     
     if (showBuildings) {
       this.renderBuildings(buildings);
@@ -306,6 +313,7 @@ class TrafficDensityChart {
    * Just clear references to prevent memory leaks.
    */
   destroy() {
+    this.initialized = false;
     this.svg = null;
     this.mainGroup = null;
     this.buildingsGroup = null;
