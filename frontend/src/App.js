@@ -7,13 +7,13 @@ const VIEWS = {
   "buildings-map": {id: "buildings-map", label: "Buildings Map", component: BuildingsMap},
   "area-characteristics": {id: "area-characteristics", label: "Area Characteristics", component: AreaCharacteristics},
   'traffic-patterns': { id: 'traffic-patterns', label: 'Traffic Patterns', component: TrafficPatterns },
-  'flow-map': { id: 'flow-map', label: 'Flow Map', component: FlowMap },
+  // 'flow-map': { id: 'flow-map', label: 'Flow Map', component: FlowMap },
   'traffic-density': { id: 'traffic-density', label: 'Traffic Density', component: TrafficDensity },
   'daily-routines': { id: 'daily-routines', label: 'Daily Routines', component: DailyRoutines },
-  'temporal-patterns': { id: 'temporal-patterns', label: 'Temporal Patterns', component: TemporalPatterns },
-  'theme-river': { id: 'theme-river', label: 'Theme River', component: ThemeRiver },
+  // 'temporal-patterns': { id: 'temporal-patterns', label: 'Temporal Patterns', component: TemporalPatterns },
+  // 'theme-river': { id: 'theme-river', label: 'Theme River', component: ThemeRiver },
   'parallel-coordinates': { id: 'parallel-coordinates', label: 'Parallel Coordinates', component: ParallelCoordinates },
-  'seasonal-comparison': { id: 'seasonal-comparison', label: 'Seasonal Comparison', component: SeasonalComparison },
+  'temporal-analysis': { id: 'temporal-analysis', label: 'Temporal Analysis', component: SeasonalComparison },
   'venue-visits': { id: 'venue-visits', label: 'Venue Visits', component: VenueVisits },
 };
 
