@@ -27,6 +27,34 @@ Nicola Noventa \\[0.5em]
 
 %------------------------------------------------
 
+\begin{frame}{Challenge 2: Patterns of Life}
+
+    % High-level summary
+    \textbf{Objective:} Use visual analytics to characterize daily routines, travel patterns, and temporal changes within the fictitious city of Engagement.
+
+    \vspace{0.5cm}
+
+    \begin{block}{Key Analytical Tasks}
+        \begin{itemize}
+            \setlength\itemsep{1em} % Adds breathing room between items
+            
+            \item \textbf{City Characterization:} 
+            Identify distinct areas of the city based on volunteer demographics and data.
+            
+            \item \textbf{Traffic \& Bottlenecks:} 
+            Locate the busiest areas and identify potential traffic hazards.
+            
+            \item \textbf{Daily Routines:} 
+            Analyze and contrast the daily patterns of two representative participants.
+            
+            \item \textbf{Temporal Changes:} 
+            Examine how city patterns evolve over time and across seasons.
+        \end{itemize}
+    \end{block}
+
+\end{frame}
+%------------------------------------------------
+
 \begin{frame}{Infrastructure}
   \includegraphics[width=1.0\linewidth]{presentation/diagram.jpeg}
 \end{frame}
@@ -348,6 +376,74 @@ Nicola Noventa \\[0.5em]
 \end{center}
 \end{frame}
 
+
+\begin{frame}{Temporal Analysis: Activity Calendar}
+
+\begin{columns}[T]
+    %---------------- LEFT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \centering
+        \includegraphics[width=1.1\linewidth]{presentation/temporal_analysis_calendar.png}
+        \label{fig:temporal_calendar}
+    \end{column}
+
+    %---------------- RIGHT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \vspace{1em}
+        \begin{itemize}
+            \item Calendar heatmap shows activity intensity for every day in the dataset
+            \item Geographic filtering enables location-specific temporal analysis
+            \item Timeline chart reveals long-term trends and seasonal variations
+            \item Activity type filtering identifies how different venue categories change over time
+        \end{itemize}
+    \end{column}
+\end{columns}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Example: Residential vs Working Areas}
+\begin{multicols}{2}
+\centering
+\includegraphics[width=\linewidth]{report/4/working_area_morning.png}\\
+\footnotesize Fig.1: Working area – morning activity
+
+\includegraphics[width=\linewidth]{report/4/working_area_evening.png}\\
+\footnotesize Fig.2: Working area – evening activity
+
+\columnbreak
+
+\centering
+\includegraphics[width=\linewidth]{report/4/residential_area_morning.png}\\
+\footnotesize Fig.3: Residential area – morning activity
+
+\includegraphics[width=\linewidth]{report/4/residential_area_evening.png}\\
+\footnotesize Fig.4: Residential area – evening activity
+\end{multicols}
+\end{frame}
+
+\begin{frame}{Seasonal Comparison: Radar Chart}
+
+\begin{columns}[T]
+    %---------------- LEFT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \centering
+        \includegraphics[width=1.1\linewidth]{presentation/temporal_analysis_diamond.png}
+        \label{fig:seasonal_radar}
+    \end{column}
+
+    %---------------- RIGHT COLUMN ----------------
+    \begin{column}{0.5\textwidth}
+        \vspace{3em}
+        \begin{itemize}
+            % \item Compares activity patterns across four seasons (Spring, Summer, Fall, Winter)
+            \item Multi-dimensional view shows how different activity types change seasonally
+            \item Overlapping polygons enable direct visual comparison between seasons
+            \item Reveals seasonal preferences and behavioral shifts in the city
+        \end{itemize}
+    \end{column}
+\end{columns}
+\end{frame}
+
 \begin{frame}{Venue Visits Over Time}
 
 %---------------- TOP: PLOT ----------------
@@ -373,53 +469,6 @@ Nicola Noventa \\[0.5em]
     \end{column}
 \end{columns}
 
-\end{frame}
-
-
-\begin{frame}{Temporal Analysis: Activity Calendar}
-
-\begin{columns}[T]
-    %---------------- LEFT COLUMN ----------------
-    \begin{column}{0.5\textwidth}
-        \centering
-        \includegraphics[width=1.1\linewidth]{presentation/temporal_analysis_calendar.png}
-        \label{fig:temporal_calendar}
-    \end{column}
-
-    %---------------- RIGHT COLUMN ----------------
-    \begin{column}{0.5\textwidth}
-        \vspace{1em}
-        \begin{itemize}
-            \item Calendar heatmap shows activity intensity for every day in the dataset
-            \item Geographic filtering enables location-specific temporal analysis
-            \item Timeline chart reveals long-term trends and seasonal variations
-            \item Activity type filtering identifies how different venue categories change over time
-        \end{itemize}
-    \end{column}
-\end{columns}
-\end{frame}
-
-\begin{frame}{Seasonal Comparison: Radar Chart}
-
-\begin{columns}[T]
-    %---------------- LEFT COLUMN ----------------
-    \begin{column}{0.5\textwidth}
-        \centering
-        \includegraphics[width=1.1\linewidth]{presentation/temporal_analysis_diamond.png}
-        \label{fig:seasonal_radar}
-    \end{column}
-
-    %---------------- RIGHT COLUMN ----------------
-    \begin{column}{0.5\textwidth}
-        \vspace{3em}
-        \begin{itemize}
-            % \item Compares activity patterns across four seasons (Spring, Summer, Fall, Winter)
-            \item Multi-dimensional view shows how different activity types change seasonally
-            \item Overlapping polygons enable direct visual comparison between seasons
-            \item Reveals seasonal preferences and behavioral shifts in the city
-        \end{itemize}
-    \end{column}
-\end{columns}
 \end{frame}
 
 %================================================
@@ -457,7 +506,7 @@ Nicola Noventa \\[0.5em]
         \vspace{1em}
         
         \begin{itemize}\small
-            \item Fronted
+            \item Frontend
             \item Question 1, 2
             \item Project Presentation
             \item Project Report
@@ -484,7 +533,7 @@ Nicola Noventa \\[0.5em]
         \vspace{1em}
         
         \begin{itemize}\small
-            \item Fronted
+            \item Frontend
             \item Question 3, 4
             \item Project Presentation
             \item Project Report
